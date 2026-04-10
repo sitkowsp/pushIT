@@ -1,0 +1,30 @@
+[Unit]
+Description=pushIT PWA Push Notification Server
+Documentation=https://github.com/pushit-app/pushit
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pushit
+Group=pushit
+WorkingDirectory=/opt/pushit
+Environment="NODE_ENV=production"
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pushit
+
+# Security and resource limits
+NoNewPrivileges=true
+PrivateTmp=true
+MemoryMax=256M
+
+# Process and file descriptor limits
+LimitNOFILE=65536
+LimitNPROC=512
+
+[Install]
+WantedBy=multi-user.target
