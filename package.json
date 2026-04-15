@@ -1,6 +1,6 @@
 {
   "name": "pushit",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "Self-hosted push notification service for iOS PWA with Microsoft Entra ID auth and n8n integration",
   "main": "server/index.js",
   "scripts": {

@@ -18,7 +18,9 @@
 
 const PushitAuth = (() => {
   let currentUser = null;
-  const CLIENT_VERSION = '1.9.0';
+  // NOTE: keep this in sync with package.json `version` and the ?v=… query
+  // strings in public/index.html on every release.
+  const CLIENT_VERSION = '1.10.0';
 
   /**
    * Initialize — check if we have a valid session.
@@ -61,6 +63,20 @@ const PushitAuth = (() => {
       const res = await fetch('/api/v1/version', { cache: 'no-store' });
       const data = await res.json();
       if (data.version && data.version !== CLIENT_VERSION) {
+        // Reload-loop guard: if we already reloaded for this server version
+        // within the last 60s, the new bundle is still reporting the old
+        // CLIENT_VERSION (release packaging missed bumping it). Don't loop —
+        // log a warning and carry on so the app stays usable.
+        const guardKey = 'pushit:lastVersionReload';
+        const now = Date.now();
+        let last = null;
+        try { last = JSON.parse(sessionStorage.getItem(guardKey) || 'null'); } catch (e) {}
+        if (last && last.serverVersion === data.version && (now - last.at) < 60000) {
+          console.warn(`[Auth] Server is ${data.version} but client reports ${CLIENT_VERSION} after reload — skipping further reloads to avoid a loop. The release was packaged with a stale CLIENT_VERSION.`);
+          return;
+        }
+        sessionStorage.setItem(guardKey, JSON.stringify({ serverVersion: data.version, at: now }));
+
         console.log(`[Auth] Update available: ${CLIENT_VERSION} → ${data.version}, refreshing...`);
         // Clear SW cache and reload
         if ('caches' in window) {

@@ -734,6 +734,61 @@ const PushitApp = (() => {
   }
 
   /**
+   * Rename a registered device.
+   */
+  async function renameDevice(deviceId) {
+    const device = devices.find((d) => d.id === deviceId);
+    if (!device) {
+      PushitUI.toast('Device not found', 'error');
+      return;
+    }
+
+    const next = (window.prompt('New device name:', device.name) || '').trim();
+    if (!next || next === device.name) return;
+
+    try {
+      const res = await PushitAuth.apiCall(`/api/v1/devices/${deviceId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: next }),
+      });
+      const data = await res.json();
+      if (res.status === 409) {
+        PushitUI.toast('Name already in use', 'error');
+        return;
+      }
+      if (data.status === 1) {
+        PushitUI.toast('Device renamed', 'success');
+        await loadSettings();
+      } else {
+        const msg = (data.errors && data.errors[0]) || 'Failed to rename device';
+        PushitUI.toast(msg, 'error');
+      }
+    } catch (err) {
+      PushitUI.toast('Failed to rename device', 'error');
+    }
+  }
+
+  /**
+   * Delete (deactivate) a registered device.
+   */
+  async function deleteDevice(deviceId) {
+    const device = devices.find((d) => d.id === deviceId);
+    const label = device ? device.name : 'this device';
+    if (!confirm(`Delete "${label}"? It will stop receiving push notifications.`)) {
+      return;
+    }
+    try {
+      await PushitAuth.apiCall(`/api/v1/devices/${deviceId}`, {
+        method: 'DELETE',
+      });
+      PushitUI.toast('Device deleted', 'success');
+      await loadSettings();
+    } catch (err) {
+      PushitUI.toast('Failed to delete device', 'error');
+    }
+  }
+
+  /**
    * Load settings.
    */
   async function loadSettings() {
@@ -974,6 +1029,8 @@ const PushitApp = (() => {
     editApp,
     submitEditApp,
     deleteApp,
+    renameDevice,
+    deleteDevice,
     unsubscribeApp,
     browsePublicApps,
     subscribeApp,

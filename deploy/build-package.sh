@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-VERSION=$(node -e "console.log(require('$PROJECT_DIR/package.json').version)")
+VERSION=$(cd "$PROJECT_DIR" && node -e "console.log(require('./package.json').version)")
 PACKAGE_NAME="pushit-${VERSION}"
 BUILD_DIR="/tmp/${PACKAGE_NAME}"
 OUTPUT="${PROJECT_DIR}/${PACKAGE_NAME}.tar.gz"
@@ -23,13 +23,32 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
 echo "[1/5] Copying application files..."
-rsync -a \
-  --exclude='node_modules' \
-  --exclude='.env' \
-  --exclude='data/' \
-  --exclude='.git/' \
-  --exclude='*.tar.gz' \
-  "$PROJECT_DIR/" "$BUILD_DIR/"
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a \
+    --exclude='node_modules' \
+    --exclude='.env' \
+    --exclude='data/' \
+    --exclude='.git/' \
+    --exclude='.claude/' \
+    --exclude='*.tar.gz' \
+    --exclude='*.mp4' \
+    --exclude='*.mov' \
+    --exclude='*.webm' \
+    "$PROJECT_DIR/" "$BUILD_DIR/"
+else
+  # Fallback: tar-pipe with excludes (works on Windows Git Bash where rsync is missing)
+  tar -C "$PROJECT_DIR" \
+    --exclude='./node_modules' \
+    --exclude='./.env' \
+    --exclude='./data' \
+    --exclude='./.git' \
+    --exclude='./.claude' \
+    --exclude='*.tar.gz' \
+    --exclude='*.mp4' \
+    --exclude='*.mov' \
+    --exclude='*.webm' \
+    -cf - . | tar -C "$BUILD_DIR" -xf -
+fi
 
 echo "[2/5] Verifying file structure..."
 REQUIRED_FILES=(

@@ -417,7 +417,65 @@ Updatable fields: `name`, `match_title_pattern`, `match_message_pattern`, `actio
 
 **GET** `/api/v1/devices`
 
-Returns all registered devices for the current user with push status.
+Returns all **active** registered devices for the current user with push status. Soft-deleted devices are not included.
+
+```json
+{
+  "status": 1,
+  "devices": [
+    {
+      "id": "uuid",
+      "name": "windows-chrome",
+      "is_active": 1,
+      "has_push": true,
+      "created_at": "2026-04-15 12:00:00",
+      "last_seen": "2026-04-15 12:34:56"
+    }
+  ]
+}
+```
+
+### Register / re-subscribe a device
+
+**POST** `/api/v1/devices/register`
+
+Called by the PWA after the user grants notification permission. Body:
+
+```json
+{
+  "name": "windows-chrome",
+  "subscription": {
+    "endpoint": "https://fcm.googleapis.com/...",
+    "keys": { "p256dh": "...", "auth": "..." }
+  },
+  "user_agent": "Mozilla/5.0 ..."
+}
+```
+
+Matching rules:
+
+1. If a device with the **same `push_endpoint`** already exists for the user, it is updated in place (same browser re-subscribing). The stored name — including any custom name set via rename — is preserved.
+2. Otherwise a new device row is created. If the requested `name` is already taken by another active device for the user, the server appends `-2`, `-3`, … to make it unique. The actual stored name is returned in the response.
+
+```json
+{ "status": 1, "device": { "id": "uuid", "name": "windows-chrome-2", "is_active": 1, "has_push": true } }
+```
+
+### Rename a device
+
+**PUT** `/api/v1/devices/:id`
+
+```json
+{ "name": "home-pc" }
+```
+
+Validation: 1–64 characters; allowed characters are letters, digits, dash (`-`), underscore (`_`), dot (`.`), and space. Returns **409 Conflict** if another active device for the same user already uses that name.
+
+### Delete a device
+
+**DELETE** `/api/v1/devices/:id`
+
+Soft-deletes the device: sets `is_active = 0`, clears the push subscription, and removes it from `GET /api/v1/devices`. Existing message history that references the device is preserved.
 
 ---
 

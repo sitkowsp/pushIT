@@ -11,6 +11,7 @@ Self-hosted push notification service with a PWA client, Microsoft Entra ID auth
 - **n8n integration** — bidirectional webhooks (receive from n8n, forward to n8n)
 - **Priority system** — -2 (silent) to 2 (emergency with retry until acknowledged)
 - **Notification filters** — route, modify, suppress, or forward notifications by pattern
+- **Device management** — rename or delete registered devices from Settings; multiple devices with the same browser/OS are auto-suffixed (e.g., `windows-chrome-2`) so each one keeps its own push subscription
 - **Groups** — send to multiple users at once
 - **Custom icons & images** — per-notification icon and large preview image (Android/Windows/macOS)
 - **SQLite** — zero-maintenance database, single-file backup

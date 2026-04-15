@@ -72,6 +72,20 @@ const PushitUI = (() => {
         return;
       }
 
+      // Rename device
+      const renameDeviceBtn = e.target.closest('[data-action="rename-device"]');
+      if (renameDeviceBtn) {
+        PushitApp.renameDevice(renameDeviceBtn.dataset.id);
+        return;
+      }
+
+      // Delete device
+      const deleteDeviceBtn = e.target.closest('[data-action="delete-device"]');
+      if (deleteDeviceBtn) {
+        PushitApp.deleteDevice(deleteDeviceBtn.dataset.id);
+        return;
+      }
+
       // Unsubscribe app
       const unsubBtn = e.target.closest('[data-action="unsubscribe-app"]');
       if (unsubBtn) {
@@ -369,10 +383,14 @@ const PushitUI = (() => {
       <div class="settings-section">
         <h3>Devices (${devices.length})</h3>
         ${devices.map((d) => `
-          <div class="setting-row">
-            <span class="label">${escapeHtml(d.name)}</span>
+          <div class="setting-row" style="flex-wrap:wrap;gap:8px;">
+            <span class="label" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(d.name)}</span>
             <span class="value" style="color: ${d.is_active ? 'var(--success)' : 'var(--text-muted)'}">
               ${d.is_active ? (d.has_push ? 'Active' : 'No push') : 'Inactive'}
+            </span>
+            <span style="display:flex;gap:6px;flex-shrink:0;">
+              <button class="btn btn-small" data-action="rename-device" data-id="${d.id}" title="Rename device">Rename</button>
+              <button class="btn btn-danger btn-small" data-action="delete-device" data-id="${d.id}" title="Delete device">Delete</button>
             </span>
           </div>
         `).join('')}

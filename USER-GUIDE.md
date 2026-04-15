@@ -135,6 +135,13 @@ Lists all your registered devices with their names and status:
 
 Device names are automatically detected from your browser and OS (e.g., "iphone-safari", "windows-chrome", "macos-edge").
 
+Each device row has two buttons:
+
+- **Rename** — give a device a friendly label (e.g., `home-pc`, `work-laptop`). Names must be 1–64 characters and may contain letters, digits, dashes, underscores, dots, and spaces. Names must be unique across your active devices.
+- **Delete** — remove the device from your account. It will stop receiving push notifications and disappear from the list. Re-enabling push from that browser later will re-register it.
+
+**Multiple devices with the same browser:** If you sign in on a second computer that has the same OS and browser as one already registered (for example, two Windows machines both using Chrome), the new device is automatically saved as `windows-chrome-2` instead of overwriting the first. The detection key is the browser's push subscription endpoint, so re-subscribing on the *same* browser keeps the same device row (and any custom name you gave it).
+
 ### API Usage
 
 A built-in quick reference for the pushIT API. Each section is collapsible — tap a header to expand it:
