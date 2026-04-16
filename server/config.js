@@ -5,6 +5,32 @@ const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   baseUrl: process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`,
 
+  // Auth mode: 'entra' (Microsoft Entra ID) or 'local' (email/password).
+  // Auto-detected from AZURE_TENANT_ID if AUTH_MODE is not set.
+  get authMode() {
+    if (process.env.AUTH_MODE) return process.env.AUTH_MODE;
+    return process.env.AZURE_TENANT_ID ? 'entra' : 'local';
+  },
+
+  // Local auth settings (only used when authMode === 'local')
+  localAuth: {
+    registrationOpen: (process.env.REGISTRATION_OPEN || 'true') === 'true',
+    bcryptRounds: parseInt(process.env.BCRYPT_ROUNDS || '12', 10),
+  },
+
+  // SMTP settings (optional — for invite emails and email verification)
+  smtp: {
+    host: process.env.SMTP_HOST || '',
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: (process.env.SMTP_SECURE || 'false') === 'true',
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    from: process.env.SMTP_FROM || 'noreply@example.com',
+    get configured() {
+      return !!(config.smtp.host && config.smtp.user);
+    },
+  },
+
   db: {
     path: process.env.DB_PATH || './data/pushit.db',
   },

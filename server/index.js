@@ -9,7 +9,7 @@ const { WebSocketServer } = require('ws');
 const http = require('http');
 
 const config = require('./config');
-const { initDatabase, close: closeDb } = require('./db/db');
+const { initDatabase, close: closeDb, get: dbGet } = require('./db/db');
 const { initWebPush } = require('./services/push');
 const { startRetryProcessor, stopRetryProcessor } = require('./services/emergency');
 
@@ -21,6 +21,8 @@ const applicationsRoutes = require('./routes/applications');
 const filtersRoutes = require('./routes/filters');
 const groupsRoutes = require('./routes/groups');
 const webhooksRoutes = require('./routes/webhooks');
+const localAuthRoutes = require('./routes/local-auth');
+const organizationsRoutes = require('./routes/organizations');
 
 const app = express();
 const server = http.createServer(app);
@@ -73,6 +75,35 @@ const messageLimiter = rateLimit({
   message: { status: 0, errors: ['Message rate limit exceeded'] },
 });
 
+// Strict rate limit for auth endpoints (registration, login, password reset)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 10,                     // 10 attempts per 15 min per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: 0, errors: ['Too many auth attempts, please try again later'] },
+});
+
+// ─── CSRF protection (defense-in-depth) ─────────────────────────────
+// For browser-session requests (cookie-authenticated), require X-Requested-With
+// header on state-changing methods.  App-token requests (external APIs like n8n)
+// are not vulnerable to CSRF because they don't use cookies.
+app.use('/api/v1', (req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+
+  // Skip CSRF check for app-token authenticated endpoints (no cookie = no CSRF risk)
+  if (req.body && req.body.token) return next();
+  if (req.query && req.query.token) return next();
+
+  // Browser-session requests must include the custom header (set by apiCall())
+  const sessionCookie = req.cookies && req.cookies.pushit_session;
+  if (sessionCookie && !req.headers['x-requested-with']) {
+    return res.status(403).json({ status: 0, errors: ['Missing CSRF header'] });
+  }
+
+  next();
+});
+
 // ─── API Routes ─────────────────────────────────────────────────────
 app.use('/api/v1/auth', apiLimiter, authRoutes);
 app.use('/api/v1/messages', messageLimiter, messagesRoutes);
@@ -81,6 +112,8 @@ app.use('/api/v1/applications', apiLimiter, applicationsRoutes);
 app.use('/api/v1/filters', apiLimiter, filtersRoutes);
 app.use('/api/v1/groups', apiLimiter, groupsRoutes);
 app.use('/api/v1/webhooks', messageLimiter, webhooksRoutes);
+app.use('/api/v1/local-auth', authLimiter, localAuthRoutes);
+app.use('/api/v1/organizations', apiLimiter, organizationsRoutes);
 
 // Validate user/group endpoint (Pushover-compatible)
 app.post('/api/v1/users/validate', apiLimiter, (req, res) => {
@@ -160,28 +193,61 @@ app.use((req, res) => {
 const wss = new WebSocketServer({ server, path: '/ws' });
 const wsClients = new Map(); // userId -> Set<ws>
 
-wss.on('connection', (ws, req) => {
-  let userId = null;
+/**
+ * Authenticate a WebSocket connection using the session cookie from the
+ * HTTP upgrade request.  Returns the database user row or null.
+ */
+function authenticateWsConnection(req) {
+  const jwt = require('jsonwebtoken');
+  const rawCookie = req.headers.cookie;
+  if (!rawCookie) return null;
 
-  ws.on('message', (data) => {
-    try {
-      const msg = JSON.parse(data);
+  // Parse the pushit_session cookie manually (no cookieParser on upgrade)
+  const match = rawCookie.match(/(?:^|;\s*)pushit_session=([^;]+)/);
+  if (!match) return null;
 
-      if (msg.type === 'auth' && msg.userId) {
-        userId = msg.userId;
-        if (!wsClients.has(userId)) {
-          wsClients.set(userId, new Set());
-        }
-        wsClients.get(userId).add(ws);
-        ws.send(JSON.stringify({ type: 'auth_ok' }));
-      }
-    } catch (e) {
-      // Ignore invalid messages
+  try {
+    const payload = jwt.verify(match[1], config.session.secret);
+    if (!payload.email) return null;
+
+    // For local-auth sessions, look up by userId first
+    if (payload.authType === 'local' && payload.userId) {
+      const user = dbGet('SELECT * FROM users WHERE id = ?', [payload.userId]);
+      if (user) return user;
     }
-  });
+
+    // For Entra sessions, look up by entraObjectId, then email fallback
+    const entraId = payload.entraObjectId || payload.email;
+    let dbUser = dbGet('SELECT * FROM users WHERE entra_object_id = ?', [entraId]);
+    if (!dbUser && payload.email) {
+      dbUser = dbGet('SELECT * FROM users WHERE email = ?', [payload.email]);
+    }
+    return dbUser || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+wss.on('connection', (ws, req) => {
+  // Authenticate from the session cookie on the upgrade request
+  const dbUser = authenticateWsConnection(req);
+
+  if (!dbUser) {
+    ws.send(JSON.stringify({ type: 'auth_error', message: 'Not authenticated' }));
+    ws.close(4001, 'Not authenticated');
+    return;
+  }
+
+  const userId = dbUser.id;
+
+  if (!wsClients.has(userId)) {
+    wsClients.set(userId, new Set());
+  }
+  wsClients.get(userId).add(ws);
+  ws.send(JSON.stringify({ type: 'auth_ok' }));
 
   ws.on('close', () => {
-    if (userId && wsClients.has(userId)) {
+    if (wsClients.has(userId)) {
       wsClients.get(userId).delete(ws);
       if (wsClients.get(userId).size === 0) {
         wsClients.delete(userId);
@@ -190,8 +256,7 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('error', () => {
-    // Clean up on error
-    if (userId && wsClients.has(userId)) {
+    if (wsClients.has(userId)) {
       wsClients.get(userId).delete(ws);
     }
   });
@@ -235,7 +300,10 @@ async function start() {
       console.log(`  📍 ${config.baseUrl}`);
       console.log(`  🔧 Environment: ${config.nodeEnv}`);
       console.log(`  📱 VAPID: ${config.vapid.publicKey ? 'configured' : 'NOT configured (run npm run vapid:generate)'}`);
+      console.log(`  🔑 Auth mode: ${config.authMode} ${config.authMode === 'local' ? `(registration: ${config.localAuth.registrationOpen ? 'open' : 'invite-only'})` : ''}`);
       console.log(`  🔐 Azure: ${config.azure.clientId ? 'configured' : 'NOT configured'}`);
+      console.log(`  📧 SMTP: ${config.smtp.configured ? 'configured' : 'NOT configured (invites will show links only)'}`);
+
       console.log('');
     });
   } catch (err) {

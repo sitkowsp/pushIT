@@ -7,7 +7,7 @@
  * This ensures users always get the latest code after deploys.
  */
 
-const CACHE_NAME = 'pushit-v31';
+const CACHE_NAME = 'pushit-v32';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

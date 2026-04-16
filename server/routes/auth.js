@@ -214,7 +214,8 @@ function exchangeCodeForTokens(code, codeVerifier) {
 router.get('/config', (req, res) => {
   res.json({
     vapidPublicKey: config.vapid.publicKey,
-    authMode: 'server-side', // No MSAL, server handles OAuth
+    authMode: config.authMode,  // 'entra' or 'local'
+    registrationOpen: config.authMode === 'local' ? config.localAuth.registrationOpen : false,
   });
 });
 

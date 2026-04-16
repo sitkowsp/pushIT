@@ -1,12 +1,16 @@
 -- pushIT Database Schema
 
--- Users (linked to Microsoft Entra ID)
+-- Users (Microsoft Entra ID or local email/password auth)
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  entra_object_id TEXT UNIQUE NOT NULL,
+  entra_object_id TEXT UNIQUE DEFAULT NULL,
   email TEXT UNIQUE NOT NULL,
   display_name TEXT NOT NULL,
   user_key TEXT UNIQUE NOT NULL,
+  password_hash TEXT DEFAULT NULL,
+  auth_type TEXT DEFAULT 'entra',
+  email_verified INTEGER DEFAULT 0,
+  verification_token TEXT DEFAULT NULL,
   is_admin INTEGER DEFAULT 0,
   quiet_hours_start TEXT DEFAULT NULL,
   quiet_hours_end TEXT DEFAULT NULL,
@@ -44,8 +48,10 @@ CREATE TABLE IF NOT EXISTS applications (
   monthly_reset_at TEXT,
   visibility TEXT DEFAULT 'private',
   color TEXT DEFAULT '#e94560',
+  organization_id TEXT DEFAULT NULL,
   created_at TEXT DEFAULT (datetime('now')),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
 );
 
 -- Messages
@@ -156,6 +162,41 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   FOREIGN KEY (filter_id) REFERENCES filters(id) ON DELETE SET NULL
 );
 
+-- Organizations (contexts / teams)
+CREATE TABLE IF NOT EXISTS organizations (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  owner_user_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Organization members
+CREATE TABLE IF NOT EXISTS org_members (
+  organization_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'member',
+  joined_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (organization_id, user_id),
+  FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Organization invites
+CREATE TABLE IF NOT EXISTS org_invites (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  token TEXT UNIQUE NOT NULL,
+  invited_by TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL,
+  accepted_at TEXT DEFAULT NULL,
+  FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+  FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- App Subscriptions (for public app subscriptions)
 CREATE TABLE IF NOT EXISTS app_subscriptions (
   application_id TEXT NOT NULL,
@@ -181,3 +222,8 @@ CREATE INDEX IF NOT EXISTS idx_emergency_receipt ON emergency_retries(receipt);
 CREATE INDEX IF NOT EXISTS idx_emergency_active ON emergency_retries(is_active);
 CREATE INDEX IF NOT EXISTS idx_filters_user ON filters(user_id);
 CREATE INDEX IF NOT EXISTS idx_groups_key ON groups(group_key);
+CREATE INDEX IF NOT EXISTS idx_org_slug ON organizations(slug);
+CREATE INDEX IF NOT EXISTS idx_org_members_user ON org_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_org_invites_token ON org_invites(token);
+CREATE INDEX IF NOT EXISTS idx_org_invites_email ON org_invites(email);
+CREATE INDEX IF NOT EXISTS idx_apps_org ON applications(organization_id);

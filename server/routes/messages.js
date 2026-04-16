@@ -226,7 +226,11 @@ router.post('/', authenticateApp, async (req, res) => {
  * Supports optional query param ?unread=1 to filter only unread messages.
  */
 router.get('/', authenticateUser, (req, res) => {
-  const { limit = 50, offset = 0, unread } = req.query;
+  const { limit: rawLimit = 50, offset: rawOffset = 0, unread } = req.query;
+
+  // Clamp limit to [1, 200] and offset to >= 0 to prevent DoS via unbounded queries
+  const limit = Math.max(1, Math.min(200, parseInt(rawLimit, 10) || 50));
+  const offset = Math.max(0, parseInt(rawOffset, 10) || 0);
 
   let query = `SELECT m.*, a.name as app_name, a.color as app_color
                FROM messages m
@@ -239,7 +243,7 @@ router.get('/', authenticateUser, (req, res) => {
   }
 
   query += ' ORDER BY m.created_at DESC LIMIT ? OFFSET ?';
-  params.push(parseInt(limit, 10), parseInt(offset, 10));
+  params.push(limit, offset);
 
   const messages = db.all(query, params);
 
@@ -254,8 +258,8 @@ router.get('/', authenticateUser, (req, res) => {
     status: 1,
     messages: messages.map(sanitizeMessage),
     total: total.count,
-    limit: parseInt(limit, 10),
-    offset: parseInt(offset, 10),
+    limit,
+    offset,
   });
 });
 

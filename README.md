@@ -1,12 +1,13 @@
 # pushIT
 
-Self-hosted push notification service with a PWA client, Microsoft Entra ID authentication, and n8n integration. Similar to [Pushover](https://pushover.net) but fully self-hosted.
+Self-hosted push notification service with a PWA client, flexible authentication (Microsoft Entra ID or local email/password), and n8n integration. Similar to [Pushover](https://pushover.net) but fully self-hosted.
 
 ## Features
 
 - **PWA for iOS & Android** — installable from the browser, works like a native app
 - **Web Push** — real-time push notifications via VAPID/Web Push API (iOS 16.4+)
-- **Microsoft Entra ID** — sign in with your work account (hybrid AD supported)
+- **Dual auth mode** — Microsoft Entra ID (work account) or local email/password registration; auto-detected from config
+- **Organizations** — create orgs, invite friends by email, scope apps to an organization
 - **Pushover-compatible API** — simple REST API for pushing notifications from any HTTP client
 - **n8n integration** — bidirectional webhooks (receive from n8n, forward to n8n)
 - **Priority system** — -2 (silent) to 2 (emergency with retry until acknowledged)
@@ -15,7 +16,8 @@ Self-hosted push notification service with a PWA client, Microsoft Entra ID auth
 - **Groups** — send to multiple users at once
 - **Custom icons & images** — per-notification icon and large preview image (Android/Windows/macOS)
 - **SQLite** — zero-maintenance database, single-file backup
-- **Real-time** — WebSocket for instant message delivery to open clients
+- **Real-time** — WebSocket for instant message delivery to open clients (cookie-authenticated)
+- **Security** — CSRF protection, query parameter bounds validation
 
 ## Architecture
 
@@ -41,7 +43,7 @@ Self-hosted push notification service with a PWA client, Microsoft Entra ID auth
 
 - **App Server**: Ubuntu 22.04+, Node.js 20+, 512MB RAM minimum
 - **Reverse Proxy**: Apache2 with mod_proxy, mod_proxy_wstunnel, SSL (or nginx)
-- **Azure**: Entra ID (Azure AD) App Registration
+- **Azure** (optional): Entra ID (Azure AD) App Registration — only needed for `AUTH_MODE=azure`
 - **iOS**: 16.4+ for Web Push support
 
 ## Quick Start
@@ -61,7 +63,28 @@ cp .env.example .env
 nano .env
 ```
 
-Fill in your Azure Entra ID credentials, domain, and run `npm run vapid:generate` to create VAPID keys.
+Run `npm run vapid:generate` to create VAPID keys, then configure authentication:
+
+**Azure (Entra ID) mode** — set `AUTH_MODE=azure` (or just provide `AZURE_TENANT_ID` and friends):
+
+```
+AUTH_MODE=azure
+AZURE_TENANT_ID=...
+AZURE_CLIENT_ID=...
+AZURE_CLIENT_SECRET=...
+```
+
+**Local (email/password) mode** — set `AUTH_MODE=local` (auto-detected if no `AZURE_TENANT_ID`):
+
+```
+AUTH_MODE=local
+REGISTRATION_OPEN=true          # allow anyone to register (default: true)
+SMTP_HOST=smtp.example.com      # optional — needed for org invite emails
+SMTP_PORT=587
+SMTP_USER=...
+SMTP_PASS=...
+SMTP_FROM=pushit@example.com
+```
 
 ### 3. Start
 
@@ -104,7 +127,7 @@ An example Apache config is included at `deploy/apache2-pushit.conf`. It handles
 ### First Login
 
 1. Open `https://YOUR_DOMAIN` on your phone or desktop
-2. Sign in with your Microsoft work account
+2. Sign in with your Microsoft work account (azure mode) or register with email/password (local mode)
 3. On iOS: tap Share → "Add to Home Screen" to install the PWA
 4. Allow notifications when prompted
 5. Go to Settings tab to see your User Key and API token
@@ -177,6 +200,10 @@ Automatically route, modify, or suppress notifications based on regex patterns. 
 Shows your account info (name, email, User Key), push notification status, registered devices, and a built-in API quick reference. The API section has ready-to-use code examples in curl, Python, PowerShell, and n8n — all pre-filled with your User Key and server URL so you can copy and paste directly.
 
 Tap **Enable Push Notifications** if push isn't active on your current device. The **Sign Out** button ends your session.
+
+### Organizations
+
+Users can create organizations (contexts) from the Settings tab to group people and apps together. The organization owner can invite members by email — invitees receive a link to join (email delivery requires SMTP settings; otherwise the invite link is shown in the UI). Apps can be scoped to an organization so that all members receive notifications from shared sources without needing individual subscriptions.
 
 ## iOS Notes
 

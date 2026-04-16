@@ -201,10 +201,12 @@ router.get('/public', authenticateUser, (req, res) => {
       [app.id, req.dbUser.id]
     );
 
+    const isOwner = app.user_id === req.dbUser.id;
     return {
       id: app.id,
       name: app.name,
-      token: app.token,
+      // Only expose token to the app owner — never leak to other users
+      token: isOwner ? app.token : undefined,
       icon_url: app.icon_url,
       description: app.description,
       is_active: app.is_active,
@@ -213,7 +215,7 @@ router.get('/public', authenticateUser, (req, res) => {
       color: app.color,
       subscriber_count: subscriberCount.count,
       is_subscribed: !!isSubscribed,
-      is_owner: app.user_id === req.dbUser.id,
+      is_owner: isOwner,
     };
   };
 

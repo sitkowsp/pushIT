@@ -204,9 +204,9 @@ const PushitApp = (() => {
     ws = new WebSocket(`${protocol}//${location.host}/ws`);
 
     ws.onopen = () => {
-      if (user && user.id) {
-        ws.send(JSON.stringify({ type: 'auth', userId: user.id }));
-      }
+      // Server authenticates via the session cookie on the WS upgrade request.
+      // No client-side auth message needed.
+      console.log('[App] WebSocket connected (cookie auth)');
     };
 
     ws.onmessage = (event) => {
@@ -809,6 +809,8 @@ const PushitApp = (() => {
 
     if (user) {
       PushitUI.renderSettings(user, pushStatus, devices);
+      // Load organizations after settings render (fills the orgs-list div)
+      loadOrgs();
     }
   }
 
@@ -967,6 +969,200 @@ const PushitApp = (() => {
     }
   }
 
+  // ─── Organizations ──────────────────────────────────────────────────
+
+  /**
+   * Load and render organizations in the Settings view.
+   */
+  async function loadOrgs() {
+    const container = document.getElementById('orgs-list');
+    if (!container) return;
+
+    try {
+      const res = await PushitAuth.apiCall('/api/v1/organizations');
+      const data = await res.json();
+      if (data.status !== 1) {
+        container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No organizations yet.</p>';
+        return;
+      }
+
+      const orgs = data.organizations;
+      if (orgs.length === 0) {
+        container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No organizations yet. Create one to share apps with your team.</p>';
+        return;
+      }
+
+      container.innerHTML = orgs.map((org) => `
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px;">
+          <span class="label" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;cursor:pointer;" data-action="view-org" data-id="${org.id}">
+            ${escapeHtml(org.name)} <span style="color:var(--text-muted);font-size:12px;">(${org.member_count} members)</span>
+          </span>
+          <span style="display:flex;gap:6px;flex-shrink:0;">
+            <button class="btn btn-small" data-action="view-org" data-id="${org.id}">Manage</button>
+            ${org.role === 'owner' ? `<button class="btn btn-danger btn-small" data-action="delete-org" data-id="${org.id}">Delete</button>` : ''}
+          </span>
+        </div>
+      `).join('');
+    } catch (err) {
+      container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">Failed to load organizations.</p>';
+    }
+  }
+
+  /**
+   * Create a new organization.
+   */
+  async function createOrg() {
+    const name = prompt('Organization name:');
+    if (!name || name.trim().length < 2) return;
+
+    try {
+      const res = await PushitAuth.apiCall('/api/v1/organizations', {
+        method: 'POST',
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      const data = await res.json();
+      if (data.status === 1) {
+        PushitUI.toast('Organization created!', 'success');
+        await loadOrgs();
+      } else {
+        PushitUI.toast(data.errors?.[0] || 'Failed to create', 'error');
+      }
+    } catch (err) {
+      PushitUI.toast('Failed to create organization', 'error');
+    }
+  }
+
+  /**
+   * View organization details.
+   */
+  async function viewOrg(orgId) {
+    try {
+      const res = await PushitAuth.apiCall(`/api/v1/organizations/${orgId}`);
+      const data = await res.json();
+      if (data.status !== 1) {
+        PushitUI.toast('Organization not found', 'error');
+        return;
+      }
+
+      const org = data.organization;
+      const isOwner = org.role === 'owner';
+
+      let membersHtml = org.members.map((m) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div>
+            <span style="font-weight:500;">${escapeHtml(m.display_name)}</span>
+            <span style="color:var(--text-muted);font-size:12px;">${escapeHtml(m.email)}</span>
+            ${m.role === 'owner' ? '<span style="color:var(--primary);font-size:11px;margin-left:4px;">Owner</span>' : ''}
+          </div>
+          ${isOwner && m.id !== user.id ? `<button class="btn btn-danger btn-small" data-action="remove-org-member" data-org-id="${orgId}" data-user-id="${m.id}">Remove</button>` : ''}
+        </div>
+      `).join('');
+
+      let invitesHtml = '';
+      if (isOwner && org.invites && org.invites.length > 0) {
+        invitesHtml = `
+          <h4 style="margin-top:16px;margin-bottom:8px;color:var(--text-secondary);">Pending Invites</h4>
+          ${org.invites.map((inv) => `
+            <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px;">
+              <span>${escapeHtml(inv.email)}</span>
+              <span style="color:var(--text-muted);">expires ${new Date(inv.expires_at).toLocaleDateString()}</span>
+            </div>
+          `).join('')}
+        `;
+      }
+
+      let appsHtml = '';
+      if (org.applications && org.applications.length > 0) {
+        appsHtml = `
+          <h4 style="margin-top:16px;margin-bottom:8px;color:var(--text-secondary);">Organization Apps</h4>
+          ${org.applications.map((a) => `
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;">
+              <span class="app-color-dot" style="background-color:${escapeHtml(a.color || '#e94560')}"></span>
+              <span>${escapeHtml(a.name)}</span>
+            </div>
+          `).join('')}
+        `;
+      }
+
+      PushitUI.showModal(escapeHtml(org.name), `
+        <h4 style="margin-bottom:8px;color:var(--text-secondary);">Members (${org.members.length})</h4>
+        ${membersHtml}
+        ${invitesHtml}
+        ${appsHtml}
+        ${isOwner ? `
+          <div style="margin-top:20px;display:flex;gap:8px;">
+            <button class="btn btn-primary btn-small" data-action="invite-org" data-id="${orgId}" style="flex:1;">Invite Member</button>
+          </div>
+        ` : ''}
+      `);
+    } catch (err) {
+      PushitUI.toast('Failed to load organization', 'error');
+    }
+  }
+
+  /**
+   * Invite a user to an organization.
+   */
+  async function inviteToOrg(orgId) {
+    const email = prompt('Email address to invite:');
+    if (!email) return;
+
+    try {
+      const res = await PushitAuth.apiCall(`/api/v1/organizations/${orgId}/invite`, {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (data.status === 1) {
+        const msg = data.invite.invite_url
+          ? `Invite sent! Share this link: ${data.invite.invite_url}`
+          : 'Invite sent!';
+        PushitUI.toast(msg, 'success', 8000);
+        PushitUI.closeModal();
+        await viewOrg(orgId);
+      } else {
+        PushitUI.toast(data.errors?.[0] || 'Failed to invite', 'error');
+      }
+    } catch (err) {
+      PushitUI.toast('Failed to send invite', 'error');
+    }
+  }
+
+  /**
+   * Remove a member from an organization.
+   */
+  async function removeOrgMember(orgId, userId) {
+    if (!confirm('Remove this member from the organization?')) return;
+
+    try {
+      await PushitAuth.apiCall(`/api/v1/organizations/${orgId}/members/${userId}`, {
+        method: 'DELETE',
+      });
+      PushitUI.toast('Member removed', 'success');
+      PushitUI.closeModal();
+      await viewOrg(orgId);
+    } catch (err) {
+      PushitUI.toast('Failed to remove member', 'error');
+    }
+  }
+
+  /**
+   * Delete an organization.
+   */
+  async function deleteOrg(orgId) {
+    if (!confirm('Delete this organization? All members will be removed.')) return;
+
+    try {
+      await PushitAuth.apiCall(`/api/v1/organizations/${orgId}`, {
+        method: 'DELETE',
+      });
+      PushitUI.toast('Organization deleted', 'success');
+      await loadOrgs();
+    } catch (err) {
+      PushitUI.toast('Failed to delete organization', 'error');
+    }
+  }
+
   /**
    * Bind all UI event listeners.
    */
@@ -1038,6 +1234,11 @@ const PushitApp = (() => {
     submitNewFilter,
     toggleFilter,
     openExternalUrl,
+    createOrg,
+    viewOrg,
+    inviteToOrg,
+    removeOrgMember,
+    deleteOrg,
   };
 })();
 

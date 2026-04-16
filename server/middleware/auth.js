@@ -28,18 +28,29 @@ const SESSION_COOKIE = 'pushit_session';
  */
 function authenticateUser(req, res, next) {
   // ─── Strategy 0: Session cookie (primary auth method) ──────────────
+  // Works for both Entra ID sessions and local email/password sessions.
   const sessionCookie = req.cookies && req.cookies[SESSION_COOKIE];
   if (sessionCookie) {
     try {
       const payload = jwt.verify(sessionCookie, config.session.secret);
       if (payload.email) {
-        req.user = {
-          entraObjectId: payload.entraObjectId || payload.email,
-          email: payload.email,
-          displayName: payload.displayName || payload.email.split('@')[0],
-          tenantId: payload.tenantId,
-          authMethod: 'session-cookie',
-        };
+        // Local auth sessions use userId + authType='local'
+        if (payload.authType === 'local') {
+          req.user = {
+            entraObjectId: payload.userId,  // use userId as identifier
+            email: payload.email,
+            displayName: payload.displayName || payload.email.split('@')[0],
+            authMethod: 'local-session',
+          };
+        } else {
+          req.user = {
+            entraObjectId: payload.entraObjectId || payload.email,
+            email: payload.email,
+            displayName: payload.displayName || payload.email.split('@')[0],
+            tenantId: payload.tenantId,
+            authMethod: 'session-cookie',
+          };
+        }
         return findOrCreateUser(req, res, next);
       }
     } catch (e) {
@@ -209,24 +220,41 @@ function authenticateByJWT(req, res, next) {
  * Look up or auto-create user in database.
  */
 function findOrCreateUser(req, res, next) {
-  let dbUser = db.get('SELECT * FROM users WHERE entra_object_id = ?', [req.user.entraObjectId]);
+  let dbUser = null;
 
-  // Also try by email if not found by object ID
-  if (!dbUser && req.user.email) {
-    dbUser = db.get('SELECT * FROM users WHERE email = ?', [req.user.email]);
-    if (dbUser && !dbUser.entra_object_id && req.user.entraObjectId) {
-      db.run('UPDATE users SET entra_object_id = ? WHERE id = ?', [req.user.entraObjectId, dbUser.id]);
+  // For local-session auth, look up by userId (stored in entraObjectId field of the session)
+  if (req.user.authMethod === 'local-session') {
+    dbUser = db.get('SELECT * FROM users WHERE id = ?', [req.user.entraObjectId]);
+    if (!dbUser) {
+      // Also try email as fallback
+      dbUser = db.get('SELECT * FROM users WHERE email = ?', [req.user.email]);
+    }
+  } else {
+    // Entra ID flow: look up by entra_object_id
+    dbUser = db.get('SELECT * FROM users WHERE entra_object_id = ?', [req.user.entraObjectId]);
+
+    // Also try by email if not found by object ID
+    if (!dbUser && req.user.email) {
+      dbUser = db.get('SELECT * FROM users WHERE email = ?', [req.user.email]);
+      if (dbUser && !dbUser.entra_object_id && req.user.entraObjectId) {
+        db.run('UPDATE users SET entra_object_id = ? WHERE id = ?', [req.user.entraObjectId, dbUser.id]);
+      }
     }
   }
 
   if (!dbUser) {
+    // Auto-create for Entra users (local users are created via /local-auth/register)
+    if (req.user.authMethod === 'local-session') {
+      return res.status(401).json({ status: 0, errors: ['User not found. Please register.'] });
+    }
+
     const { v4: uuidv4 } = require('uuid');
     const userId = uuidv4();
     const userKey = generateUserKey();
 
     db.run(
-      `INSERT INTO users (id, entra_object_id, email, display_name, user_key, last_login)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+      `INSERT INTO users (id, entra_object_id, email, display_name, user_key, auth_type, email_verified, last_login)
+       VALUES (?, ?, ?, ?, ?, 'entra', 1, datetime('now'))`,
       [userId, req.user.entraObjectId, req.user.email, req.user.displayName, userKey]
     );
 

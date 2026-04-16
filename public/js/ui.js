@@ -121,6 +121,41 @@ const PushitUI = (() => {
         return;
       }
 
+      // Create organization
+      const createOrgBtn = e.target.closest('[data-action="create-org"]');
+      if (createOrgBtn) {
+        PushitApp.createOrg();
+        return;
+      }
+
+      // View organization
+      const viewOrgBtn = e.target.closest('[data-action="view-org"]');
+      if (viewOrgBtn) {
+        PushitApp.viewOrg(viewOrgBtn.dataset.id);
+        return;
+      }
+
+      // Invite to organization
+      const inviteOrgBtn = e.target.closest('[data-action="invite-org"]');
+      if (inviteOrgBtn) {
+        PushitApp.inviteToOrg(inviteOrgBtn.dataset.id);
+        return;
+      }
+
+      // Remove org member
+      const removeMemBtn = e.target.closest('[data-action="remove-org-member"]');
+      if (removeMemBtn) {
+        PushitApp.removeOrgMember(removeMemBtn.dataset.orgId, removeMemBtn.dataset.userId);
+        return;
+      }
+
+      // Delete organization
+      const deleteOrgBtn = e.target.closest('[data-action="delete-org"]');
+      if (deleteOrgBtn) {
+        PushitApp.deleteOrg(deleteOrgBtn.dataset.id);
+        return;
+      }
+
       // Delete all messages
       const deleteAllBtn = e.target.closest('[data-action="delete-all-messages"]');
       if (deleteAllBtn) {
@@ -394,6 +429,16 @@ const PushitUI = (() => {
             </span>
           </div>
         `).join('')}
+      </div>
+
+      <div class="settings-section" id="orgs-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3>Organizations</h3>
+          <button class="btn btn-primary btn-small" data-action="create-org">+ New</button>
+        </div>
+        <div id="orgs-list" style="margin-top:8px;">
+          <p style="color:var(--text-muted);font-size:13px;">Loading...</p>
+        </div>
       </div>
 
       <div class="settings-section">

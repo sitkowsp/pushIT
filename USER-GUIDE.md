@@ -2,7 +2,37 @@
 
 This guide covers the pushIT web app interface — the four main tabs and how to use each one.
 
-After signing in with your Microsoft work account, you'll see the bottom navigation bar with four tabs: **Messages**, **Apps**, **Filters**, and **Settings**.
+After signing in, you'll see the bottom navigation bar with four tabs: **Messages**, **Apps**, **Filters**, and **Settings**.
+
+---
+
+## Signing In
+
+pushIT supports two authentication modes depending on how your instance is configured.
+
+### Microsoft Account
+
+If the instance is connected to Microsoft Entra ID, tapping "Sign in" redirects you to your organization's Microsoft login page. Once authenticated, you're returned to pushIT and signed in automatically.
+
+### Local Auth
+
+If the instance is running in local auth mode (no Microsoft tenant configured), you'll see a login and registration form directly on the pushIT login screen.
+
+#### Registering a new account
+
+1. On the login screen, tap **Register**
+2. Enter your desired display name, email address, and a password
+3. Your password must be at least **8 characters** long and contain at least **one letter** and **one number**
+4. Tap **Register** to create your account
+
+You'll be signed in immediately after registering.
+
+#### Logging in
+
+1. Enter the email address and password you registered with
+2. Tap **Login**
+
+If you forget your password, contact your instance administrator to reset it.
 
 ---
 
@@ -114,7 +144,7 @@ The Settings tab shows your account info, push notification status, registered d
 
 ### Account
 
-Displays your name, email address (from your Microsoft Entra ID account), and your **User Key**. The User Key is what API callers use to target notifications to you specifically. Tap it to copy to clipboard.
+Displays your name, email address, and your **User Key**. The User Key is what API callers use to target notifications to you specifically. Tap it to copy to clipboard.
 
 ### Notifications
 
@@ -156,6 +186,37 @@ A built-in quick reference for the pushIT API. Each section is collapsible — t
 - **Response Format** — success and error response structures
 
 All code examples use your actual User Key and your server's URL, so you can copy and paste them directly.
+
+### Organizations
+
+Organizations let you group users together and share apps across your team. You can create, join, and manage organizations from the Settings tab.
+
+#### Creating an organization
+
+1. In the Settings tab, find the **Organizations** section
+2. Tap **Create Organization**
+3. Enter a name for your organization
+4. Tap **Create**
+
+You become the owner of the new organization automatically.
+
+#### Inviting members
+
+1. Open your organization from the Settings tab
+2. Tap **Invite Member**
+3. Enter the email address of the person you want to invite
+4. A **shareable invite link** is also available — copy it and send it to anyone you'd like to join. Anyone with the link can accept the invitation and join your organization
+
+#### Managing members
+
+From your organization's member list you can:
+
+- **View all members** — see who has joined your organization along with their roles
+- **Remove a member** — tap the remove button next to a member's name to revoke their access. Removed members will no longer see org-scoped apps
+
+#### Organization-scoped apps
+
+Apps can be linked to an organization, making them visible to all members of that organization. When you create or edit an app, you can assign it to an organization you belong to. All members of that organization will then see the app in their Apps tab and can subscribe to receive its notifications. This is useful for shared alerting and team-wide notification sources.
 
 ### Sign Out
 

@@ -4,9 +4,13 @@
 
 All message-sending endpoints authenticate via **app token**. Include your token in the request body as the `token` field, or as a `Bearer` token in the `Authorization` header.
 
-User-facing endpoints (reading messages, managing apps/filters) authenticate via **session cookie** (set by the OAuth2 login flow).
+User-facing endpoints (reading messages, managing apps/filters) authenticate via **session cookie** (set by the OAuth2 or local login flow).
 
 Get your app token from the **Apps** tab in the pushIT web interface.
+
+### CSRF protection
+
+All browser-session **POST**, **PUT**, and **DELETE** requests require the `X-Requested-With` header. The value can be anything (the PWA sends `XMLHttpRequest`). Requests without this header are rejected with **403 Forbidden**. This does not apply to app-token-authenticated endpoints (sending messages, checking receipts).
 
 ## Base URL
 
@@ -206,7 +210,7 @@ Retrieve message history for the authenticated user. Requires session cookie aut
 
 | Parameter | Type    | Default | Description                     |
 |-----------|---------|---------|---------------------------------|
-| `limit`   | integer | 50      | Max messages to return          |
+| `limit`   | integer | 50      | Max messages to return (clamped to max 200) |
 | `offset`  | integer | 0       | Pagination offset               |
 | `unread`  | boolean | —       | Set to `1` to filter unread only |
 
@@ -510,6 +514,338 @@ Returns the current server version. Used by the client for auto-update detection
 
 ---
 
+## Auth Config
+
+**GET** `/api/v1/auth/config`
+
+Returns the server's authentication mode and registration status. No authentication required.
+
+```json
+{
+  "authMode": "local",
+  "registrationOpen": true,
+  "vapidPublicKey": "BEl62i..."
+}
+```
+
+| Field              | Type    | Description                                                    |
+|--------------------|---------|----------------------------------------------------------------|
+| `authMode`         | string  | `"entra"` (Microsoft Entra ID) or `"local"` (email/password)  |
+| `registrationOpen` | boolean | Whether self-registration is open (local auth only)            |
+| `vapidPublicKey`   | string  | VAPID public key for push subscription                         |
+
+---
+
+## Local Auth
+
+These endpoints are only active when the server is configured with `AUTH_MODE=local`. They return **404** when `AUTH_MODE=entra`.
+
+All local auth endpoints set or consume a session cookie. No app token is used.
+
+### Register
+
+**POST** `/api/v1/local-auth/register`
+
+Create a new account. Only available when self-registration is open.
+
+```json
+POST /api/v1/local-auth/register
+Content-Type: application/json
+
+{
+  "email": "alice@example.com",
+  "password": "s3cureP@ss",
+  "display_name": "Alice"
+}
+```
+
+| Parameter      | Type   | Required | Description           |
+|----------------|--------|----------|-----------------------|
+| `email`        | string | Yes      | Email address         |
+| `password`     | string | Yes      | Password              |
+| `display_name` | string | Yes      | Display name          |
+
+On success, a session cookie is set and the response confirms the account:
+
+```json
+{ "status": 1 }
+```
+
+### Login
+
+**POST** `/api/v1/local-auth/login`
+
+Authenticate with email and password. Sets a session cookie on success.
+
+```json
+POST /api/v1/local-auth/login
+Content-Type: application/json
+
+{
+  "email": "alice@example.com",
+  "password": "s3cureP@ss"
+}
+```
+
+| Parameter  | Type   | Required | Description   |
+|------------|--------|----------|---------------|
+| `email`    | string | Yes      | Email address |
+| `password` | string | Yes      | Password      |
+
+```json
+{ "status": 1 }
+```
+
+### Verify email
+
+**GET** `/api/v1/local-auth/verify-email/:token`
+
+Verifies the user's email address using the token sent during registration.
+
+```
+GET /api/v1/local-auth/verify-email/abc123def456
+```
+
+Returns a success or error page/response depending on token validity.
+
+### Forgot password
+
+**POST** `/api/v1/local-auth/forgot-password`
+
+Request a password reset link. The server sends an email with a reset token.
+
+```json
+POST /api/v1/local-auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "alice@example.com"
+}
+```
+
+| Parameter | Type   | Required | Description   |
+|-----------|--------|----------|---------------|
+| `email`   | string | Yes      | Email address |
+
+```json
+{ "status": 1 }
+```
+
+The response always returns success regardless of whether the email exists, to prevent enumeration.
+
+### Reset password
+
+**POST** `/api/v1/local-auth/reset-password`
+
+Set a new password using the token received via email.
+
+```json
+POST /api/v1/local-auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "reset-token-from-email",
+  "password": "newS3cureP@ss"
+}
+```
+
+| Parameter  | Type   | Required | Description               |
+|------------|--------|----------|---------------------------|
+| `token`    | string | Yes      | Reset token from the email |
+| `password` | string | Yes      | New password               |
+
+```json
+{ "status": 1 }
+```
+
+### Register via invite
+
+**POST** `/api/v1/local-auth/register-invite`
+
+Register a new account using an organization invite token. This endpoint works even when self-registration is closed.
+
+```json
+POST /api/v1/local-auth/register-invite
+Content-Type: application/json
+
+{
+  "invite_token": "org-invite-token",
+  "password": "s3cureP@ss",
+  "display_name": "Bob"
+}
+```
+
+| Parameter      | Type   | Required | Description                        |
+|----------------|--------|----------|------------------------------------|
+| `invite_token` | string | Yes      | Invite token from the organization |
+| `password`     | string | Yes      | Password                           |
+| `display_name` | string | Yes      | Display name                       |
+
+On success, a session cookie is set and the user is added to the inviting organization:
+
+```json
+{ "status": 1 }
+```
+
+---
+
+## Organizations
+
+Organization endpoints require session cookie authentication. Organizations let users group together and share apps within a team.
+
+### List organizations
+
+**GET** `/api/v1/organizations`
+
+Returns all organizations the authenticated user belongs to.
+
+```json
+{
+  "status": 1,
+  "organizations": [
+    {
+      "id": "uuid",
+      "name": "Ops Team",
+      "role": "owner",
+      "created_at": "2026-04-10T08:00:00.000Z"
+    }
+  ]
+}
+```
+
+### Create organization
+
+**POST** `/api/v1/organizations`
+
+```json
+POST /api/v1/organizations
+Content-Type: application/json
+
+{
+  "name": "Ops Team"
+}
+```
+
+| Parameter | Type   | Required | Description       |
+|-----------|--------|----------|-------------------|
+| `name`    | string | Yes      | Organization name |
+
+The creating user becomes the organization owner.
+
+```json
+{ "status": 1, "organization": { "id": "uuid", "name": "Ops Team" } }
+```
+
+### Get organization details
+
+**GET** `/api/v1/organizations/:id`
+
+Returns organization info and its member list.
+
+```json
+{
+  "status": 1,
+  "organization": {
+    "id": "uuid",
+    "name": "Ops Team",
+    "created_at": "2026-04-10T08:00:00.000Z"
+  },
+  "members": [
+    {
+      "user_id": "uuid",
+      "display_name": "Alice",
+      "email": "alice@example.com",
+      "role": "owner"
+    },
+    {
+      "user_id": "uuid",
+      "display_name": "Bob",
+      "email": "bob@example.com",
+      "role": "member"
+    }
+  ]
+}
+```
+
+### Update organization
+
+**PUT** `/api/v1/organizations/:id`
+
+Update the organization name. Owner only.
+
+```json
+{ "name": "New Team Name" }
+```
+
+### Invite a user
+
+**POST** `/api/v1/organizations/:id/invite`
+
+Send an invite email to a new or existing user. Owner only.
+
+```json
+POST /api/v1/organizations/:id/invite
+Content-Type: application/json
+
+{
+  "email": "bob@example.com"
+}
+```
+
+| Parameter | Type   | Required | Description                   |
+|-----------|--------|----------|-------------------------------|
+| `email`   | string | Yes      | Email address of the invitee  |
+
+```json
+{ "status": 1 }
+```
+
+If the email belongs to an existing user, they receive an invite they can accept. If not, the invite link allows them to register via `POST /api/v1/local-auth/register-invite`.
+
+### Accept invite
+
+**POST** `/api/v1/organizations/accept-invite/:token`
+
+Accept an organization invite. Requires session cookie authentication (the user must already be logged in).
+
+```
+POST /api/v1/organizations/accept-invite/invite-token-here
+```
+
+```json
+{ "status": 1 }
+```
+
+### Remove member
+
+**DELETE** `/api/v1/organizations/:id/members/:userId`
+
+Remove a member from the organization. Owner only.
+
+```
+DELETE /api/v1/organizations/:id/members/:userId
+```
+
+```json
+{ "status": 1 }
+```
+
+### Delete organization
+
+**DELETE** `/api/v1/organizations/:id`
+
+Delete the organization and remove all memberships. Owner only.
+
+```
+DELETE /api/v1/organizations/:id
+```
+
+```json
+{ "status": 1 }
+```
+
+---
+
 ## Examples
 
 ### curl — simple notification
@@ -677,11 +1013,7 @@ Common HTTP status codes: 400 (bad request), 401 (unauthorized), 404 (not found)
 
 Connect to `wss://push.example.com/ws` for real-time message updates.
 
-After connecting, send an auth message:
-
-```json
-{ "type": "auth", "userId": "YOUR_USER_ID" }
-```
+Authentication is automatic: the WebSocket upgrade request uses the session cookie, so no client-sent auth message is needed. The server identifies the user from the session on connect.
 
 New messages arrive as:
 
