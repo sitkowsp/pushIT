@@ -5,6 +5,11 @@ const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   baseUrl: process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`,
 
+  // Derive HTTPS mode from BASE_URL — controls cookie secure flag, CSP ws/wss, etc.
+  get isHttps() {
+    return config.baseUrl.startsWith('https://');
+  },
+
   // Auth mode: 'entra' (Microsoft Entra ID) or 'local' (email/password).
   // Auto-detected from AZURE_TENANT_ID if AUTH_MODE is not set.
   get authMode() {

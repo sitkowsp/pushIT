@@ -33,6 +33,9 @@ const server = http.createServer(app);
 app.set('trust proxy', 1);
 
 // ─── Middleware ──────────────────────────────────────────────────────
+const baseUrlHost = new URL(config.baseUrl).host;
+const wsProtocol = config.isHttps ? 'wss:' : 'ws:';
+
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -41,15 +44,17 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       connectSrc: [
         "'self'",
-        `wss://${new URL(config.baseUrl).host}`,
+        `${wsProtocol}//${baseUrlHost}`,
       ],
       imgSrc: ["'self'", "data:", "https:"],
     },
   },
 }));
 
+// CORS: allow the BASE_URL origin.  For LAN deployments the browser origin
+// may include the port (e.g. http://192.168.1.100:3000) — this handles that.
 app.use(cors({
-  origin: config.baseUrl,
+  origin: config.baseUrl.replace(/\/$/, ''),  // strip trailing slash if any
   credentials: true,
 }));
 

@@ -633,8 +633,39 @@ APACHEEOF
     fi
   else
     echo -e "${YELLOW}  Skipping Apache/SSL setup.${NC}"
+    echo "  The app will run on plain HTTP (port ${PORT:-3000}) directly."
     echo "  You can configure a reverse proxy manually later."
     echo "  See deploy/apache2-pushit.conf for a template."
+    echo ""
+
+    # ── Set correct BASE_URL for direct HTTP access ──
+    AUTO_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || hostname -I 2>/dev/null | awk '{print $1}' || echo "")
+    APP_PORT=$(grep "^PORT=" "$PUSHIT_DIR/.env" 2>/dev/null | cut -d= -f2 || echo "3000")
+
+    if [[ -n "$AUTO_IP" ]]; then
+      read -p "  Enter server address for BASE_URL (detected: ${AUTO_IP}): " USER_ADDR
+      USER_ADDR="${USER_ADDR:-$AUTO_IP}"
+    else
+      read -p "  Enter server IP or hostname for BASE_URL (e.g., 192.168.1.100): " USER_ADDR
+    fi
+
+    if [[ -n "$USER_ADDR" ]]; then
+      DIRECT_URL="http://${USER_ADDR}:${APP_PORT}"
+      if grep -q "BASE_URL" "$PUSHIT_DIR/.env"; then
+        sed -i "s|BASE_URL=.*|BASE_URL=${DIRECT_URL}|g" "$PUSHIT_DIR/.env"
+      else
+        echo "BASE_URL=${DIRECT_URL}" >> "$PUSHIT_DIR/.env"
+      fi
+      echo -e "${GREEN}  ✓ BASE_URL set to ${DIRECT_URL}${NC}"
+      echo ""
+      echo -e "  ${YELLOW}Note: Without HTTPS, push notifications (service workers) will only${NC}"
+      echo -e "  ${YELLOW}work when accessed via 'localhost'. To enable push from other devices,${NC}"
+      echo -e "  ${YELLOW}set up Apache with a self-signed certificate (re-run deploy.sh).${NC}"
+
+      # Restart pushIT so it picks up the new BASE_URL
+      systemctl restart pushit 2>/dev/null || true
+      sleep 2
+    fi
   fi
 else
   echo -e "${YELLOW}Step 11: Skipping Apache/SSL configuration (--update mode)${NC}"

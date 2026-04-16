@@ -109,11 +109,19 @@ cd /tmp && tar -xzf pushit-*.tar.gz && cd pushit-*
 sudo bash deploy/deploy.sh
 ```
 
-The script installs Node.js, creates a system user, generates VAPID keys and secrets, initializes the database, and starts a systemd service. See `deploy/deploy.sh` for details.
+The script installs Node.js, creates a system user, generates VAPID keys and secrets, initializes the database, and starts a systemd service. It also offers to set up Apache2 with SSL (Let's Encrypt for public domains, self-signed certs for LAN). See `deploy/deploy.sh` for details.
+
+### LAN / Local Network Deployment
+
+pushIT works on a local network without a public domain. During deployment, choose option 2 ("Local network / LAN") to generate a self-signed SSL certificate for your server's IP address. The certificate uses `subjectAltName` so Chrome and Edge accept it.
+
+To avoid browser warnings, import the generated certificate (`/etc/ssl/pushit/pushit.crt`) as a trusted root CA on client devices. Without HTTPS, service workers and push notifications will only work from `localhost`.
+
+If you skip Apache setup entirely, the deploy script sets `BASE_URL=http://IP:3000` so the app works over plain HTTP — but push notifications will be limited to localhost access.
 
 ### Apache2 Reverse Proxy
 
-An example Apache config is included at `deploy/apache2-pushit.conf`. It handles HTTPS termination, WebSocket proxying, and security headers. Edit the file and replace `YOUR_DOMAIN` and `BACKEND_IP` with your values.
+The deploy script can configure Apache automatically. If you prefer manual setup, an example config is included at `deploy/apache2-pushit.conf`. It handles HTTPS termination, WebSocket proxying, and security headers. Edit the file and replace `YOUR_DOMAIN` and `BACKEND_IP` with your values.
 
 > **Important for wildcard certs:** If your reverse proxy uses a wildcard certificate shared across multiple vhosts on the same IP, the config includes `Protocols http/1.1` to prevent HTTP/2 connection coalescing. Without this, iOS PWA users may see HTTP 421 "Misdirected Request" errors when opening external links. See the [iOS notes](#ios-notes) section below.
 

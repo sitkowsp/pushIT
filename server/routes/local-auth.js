@@ -97,7 +97,7 @@ router.post('/register', async (req, res) => {
 
     res.cookie(SESSION_COOKIE, sessionToken, {
       httpOnly: true,
-      secure: config.nodeEnv === 'production',
+      secure: config.isHttps,
       sameSite: 'lax',
       maxAge: SESSION_MAX_AGE * 1000,
       path: '/',
@@ -157,7 +157,7 @@ router.post('/login', async (req, res) => {
 
     res.cookie(SESSION_COOKIE, sessionToken, {
       httpOnly: true,
-      secure: config.nodeEnv === 'production',
+      secure: config.isHttps,
       sameSite: 'lax',
       maxAge: SESSION_MAX_AGE * 1000,
       path: '/',
@@ -409,7 +409,7 @@ router.post('/register-invite', async (req, res) => {
 
     res.cookie(SESSION_COOKIE, sessionToken, {
       httpOnly: true,
-      secure: config.nodeEnv === 'production',
+      secure: config.isHttps,
       sameSite: 'lax',
       maxAge: SESSION_MAX_AGE * 1000,
       path: '/',

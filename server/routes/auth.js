@@ -138,8 +138,8 @@ router.get('/callback', async (req, res) => {
 
     res.cookie(SESSION_COOKIE, sessionToken, {
       httpOnly: true,
-      secure: true,         // HTTPS required for secure cookies
-      sameSite: 'lax',      // Allow redirect from Azure AD
+      secure: config.isHttps,  // Only set secure flag when BASE_URL is HTTPS
+      sameSite: 'lax',         // Allow redirect from Azure AD
       maxAge: SESSION_MAX_AGE * 1000, // ms
       path: '/',
     });
