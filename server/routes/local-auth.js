@@ -70,15 +70,19 @@ router.post('/register', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, config.localAuth.bcryptRounds);
     const verificationToken = crypto.randomBytes(32).toString('hex');
 
+    // First user ever registered becomes admin automatically (self-hosted app)
+    const userCount = db.get('SELECT COUNT(*) as count FROM users');
+    const isFirstUser = (!userCount || userCount.count === 0) ? 1 : 0;
+
     // Use 'local:<email>' as entra_object_id for compatibility with old schemas
     // where entra_object_id has a NOT NULL constraint.
     db.run(
-      `INSERT INTO users (id, entra_object_id, email, display_name, user_key, password_hash, auth_type, email_verified, verification_token, last_login)
-       VALUES (?, ?, ?, ?, ?, ?, 'local', 0, ?, datetime('now'))`,
-      [userId, `local:${email.toLowerCase()}`, email.toLowerCase(), display_name.trim(), userKey, passwordHash, verificationToken]
+      `INSERT INTO users (id, entra_object_id, email, display_name, user_key, password_hash, auth_type, email_verified, verification_token, is_admin, last_login)
+       VALUES (?, ?, ?, ?, ?, ?, 'local', 0, ?, ?, datetime('now'))`,
+      [userId, `local:${email.toLowerCase()}`, email.toLowerCase(), display_name.trim(), userKey, passwordHash, verificationToken, isFirstUser]
     );
 
-    console.log(`[LocalAuth] New user registered: ${email} (${userId})`);
+    console.log(`[LocalAuth] New user registered: ${email} (${userId})${isFirstUser ? ' [ADMIN]' : ''}`);
 
     // Send verification email if SMTP is configured
     if (config.smtp.configured) {

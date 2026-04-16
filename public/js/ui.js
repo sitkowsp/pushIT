@@ -476,8 +476,7 @@ const PushitUI = (() => {
         </div>
       </div>
 
-      ${user.is_admin ? `
-      <div class="settings-section" id="smtp-config-section">
+      <div class="settings-section" id="smtp-config-section" style="display:none;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <h3>Email (SMTP)</h3>
           <span id="smtp-status" style="font-size:12px;color:var(--text-muted);"></span>
@@ -486,7 +485,6 @@ const PushitUI = (() => {
           <p style="color:var(--text-muted);font-size:13px;">Loading...</p>
         </div>
       </div>
-      ` : ''}
 
       <div class="settings-section">
         <h3>API Usage</h3>

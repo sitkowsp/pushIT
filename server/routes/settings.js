@@ -1,8 +1,22 @@
 const express = require('express');
 const router = express.Router();
+const db = require('../db/db');
 const { authenticateUser } = require('../middleware/auth');
 const { getSmtpConfig, saveSmtpConfig, deleteSmtpConfig, testSmtpConfig } = require('../services/smtp-config');
 const config = require('../config');
+
+/**
+ * Check if the user can manage settings (admin or any org owner).
+ */
+function canManageSettings(dbUser) {
+  if (dbUser.is_admin) return true;
+  // Org owners can also manage settings in self-hosted deployments
+  const ownsOrg = db.get(
+    "SELECT 1 FROM org_members WHERE user_id = ? AND role = 'owner'",
+    [dbUser.id]
+  );
+  return !!ownsOrg;
+}
 
 /**
  * GET /api/v1/settings/smtp
@@ -11,8 +25,8 @@ const config = require('../config');
  * Never returns the password.
  */
 router.get('/smtp', authenticateUser, (req, res) => {
-  if (!req.dbUser.is_admin) {
-    return res.status(403).json({ status: 0, errors: ['Admin only'] });
+  if (!canManageSettings(req.dbUser)) {
+    return res.status(403).json({ status: 0, errors: ['Admin or org owner required'] });
   }
 
   const smtpCfg = getSmtpConfig();
@@ -50,8 +64,8 @@ router.get('/smtp', authenticateUser, (req, res) => {
  * Only works when SMTP is NOT configured via .env.
  */
 router.post('/smtp', authenticateUser, (req, res) => {
-  if (!req.dbUser.is_admin) {
-    return res.status(403).json({ status: 0, errors: ['Admin only'] });
+  if (!canManageSettings(req.dbUser)) {
+    return res.status(403).json({ status: 0, errors: ['Admin or org owner required'] });
   }
 
   if (config.smtp.configured) {
@@ -85,8 +99,8 @@ router.post('/smtp', authenticateUser, (req, res) => {
  * Remove DB-stored SMTP configuration. Admin only.
  */
 router.delete('/smtp', authenticateUser, (req, res) => {
-  if (!req.dbUser.is_admin) {
-    return res.status(403).json({ status: 0, errors: ['Admin only'] });
+  if (!canManageSettings(req.dbUser)) {
+    return res.status(403).json({ status: 0, errors: ['Admin or org owner required'] });
   }
 
   if (config.smtp.configured) {
@@ -103,8 +117,8 @@ router.delete('/smtp', authenticateUser, (req, res) => {
  * Test SMTP configuration by sending a test email. Admin only.
  */
 router.post('/smtp/test', authenticateUser, async (req, res) => {
-  if (!req.dbUser.is_admin) {
-    return res.status(403).json({ status: 0, errors: ['Admin only'] });
+  if (!canManageSettings(req.dbUser)) {
+    return res.status(403).json({ status: 0, errors: ['Admin or org owner required'] });
   }
 
   const { host, port, secure, user, pass, from } = req.body;

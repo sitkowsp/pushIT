@@ -20,3 +20,8 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL,
   updated_at TEXT DEFAULT (datetime('now'))
 );
+
+-- Promote first user to admin (for existing deployments upgrading to v1.12.0)
+UPDATE users SET is_admin = 1 WHERE id = (
+  SELECT id FROM users ORDER BY created_at ASC LIMIT 1
+);

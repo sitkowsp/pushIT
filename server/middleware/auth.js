@@ -260,14 +260,18 @@ function findOrCreateUser(req, res, next) {
     const userId = uuidv4();
     const userKey = generateUserKey();
 
+    // First user ever becomes admin automatically (self-hosted app)
+    const userCount = db.get('SELECT COUNT(*) as count FROM users');
+    const isFirstUser = (!userCount || userCount.count === 0) ? 1 : 0;
+
     db.run(
-      `INSERT INTO users (id, entra_object_id, email, display_name, user_key, auth_type, email_verified, last_login)
-       VALUES (?, ?, ?, ?, ?, 'entra', 1, datetime('now'))`,
-      [userId, req.user.entraObjectId, req.user.email, req.user.displayName, userKey]
+      `INSERT INTO users (id, entra_object_id, email, display_name, user_key, auth_type, email_verified, is_admin, last_login)
+       VALUES (?, ?, ?, ?, ?, 'entra', 1, ?, datetime('now'))`,
+      [userId, req.user.entraObjectId, req.user.email, req.user.displayName, userKey, isFirstUser]
     );
 
     dbUser = db.get('SELECT * FROM users WHERE id = ?', [userId]);
-    console.log(`[Auth] Created new user: ${req.user.email} (${userId}) via ${req.user.authMethod}`);
+    console.log(`[Auth] Created new user: ${req.user.email} (${userId}) via ${req.user.authMethod}${isFirstUser ? ' [ADMIN]' : ''}`);
   } else {
     db.run(
       `UPDATE users SET last_login = datetime('now'), display_name = ?, email = ? WHERE id = ?`,

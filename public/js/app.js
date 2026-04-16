@@ -949,8 +949,8 @@ const PushitApp = (() => {
       PushitUI.renderSettings(user, pushStatus, devices);
       // Load organizations after settings render (fills the orgs-list div)
       loadOrgs();
-      // Load SMTP config if admin
-      if (user.is_admin) loadSmtpConfig();
+      // Load SMTP config (shows section if user has access — admin or org owner)
+      loadSmtpConfig();
     }
   }
 
@@ -1359,17 +1359,24 @@ const PushitApp = (() => {
    * Load and render SMTP configuration in Settings.
    */
   async function loadSmtpConfig() {
+    const section = document.getElementById('smtp-config-section');
     const container = document.getElementById('smtp-config-content');
     const statusEl = document.getElementById('smtp-status');
-    if (!container) return;
+    if (!container || !section) return;
 
     try {
       const res = await PushitAuth.apiCall('/api/v1/settings/smtp');
-      const data = await res.json();
-      if (data.status !== 1) {
-        container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">Unable to load SMTP config.</p>';
+      if (res.status === 403) {
+        // User doesn't have access — keep section hidden
         return;
       }
+      const data = await res.json();
+      if (data.status !== 1) {
+        return; // Keep section hidden on error
+      }
+
+      // Show the section — user has access
+      section.style.display = '';
 
       const smtp = data.smtp;
       const envConfigured = data.envConfigured;
@@ -1425,7 +1432,8 @@ const PushitApp = (() => {
         `;
       }
     } catch (err) {
-      container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">Failed to load SMTP settings.</p>';
+      // Keep section hidden on network error (user likely doesn't have access)
+      return;
     }
   }
 
