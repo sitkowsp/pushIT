@@ -205,6 +205,13 @@ const PushitUI = (() => {
         return;
       }
 
+      // Make owner (transfer ownership)
+      const makeOwnerBtn = e.target.closest('[data-action="make-owner"]');
+      if (makeOwnerBtn) {
+        PushitApp.transferOwnership(makeOwnerBtn.dataset.appId, makeOwnerBtn.dataset.userId);
+        return;
+      }
+
       // Delete all messages
       const deleteAllBtn = e.target.closest('[data-action="delete-all-messages"]');
       if (deleteAllBtn) {

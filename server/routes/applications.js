@@ -314,7 +314,18 @@ router.post('/:id/subscribe', authenticateUser, (req, res) => {
     [app.id, req.dbUser.id]
   );
 
-  res.json({ status: 1 });
+  // Auto-assign ownership if the app is orphaned (owner is not subscribed)
+  let becameOwner = false;
+  const ownerSubscribed = db.get(
+    'SELECT 1 FROM app_subscriptions WHERE application_id = ? AND user_id = ?',
+    [app.id, app.user_id]
+  );
+  if (!ownerSubscribed) {
+    db.run('UPDATE applications SET user_id = ? WHERE id = ?', [req.dbUser.id, app.id]);
+    becameOwner = true;
+  }
+
+  res.json({ status: 1, became_owner: becameOwner });
 });
 
 /**
@@ -502,9 +513,55 @@ router.delete('/:id/subscribers/:userId', authenticateUser, (req, res) => {
 });
 
 /**
+ * PUT /api/v1/applications/:id/transfer-ownership
+ * Transfer app ownership to another subscriber. Owner only.
+ * Body: { new_owner_id: "user-uuid" }
+ */
+router.put('/:id/transfer-ownership', authenticateUser, (req, res) => {
+  const app = db.get(
+    'SELECT * FROM applications WHERE id = ? AND user_id = ?',
+    [req.params.id, req.dbUser.id]
+  );
+
+  if (!app) {
+    return res.status(404).json({ status: 0, errors: ['Application not found or you are not the owner'] });
+  }
+
+  const { new_owner_id } = req.body;
+  if (!new_owner_id) {
+    return res.status(400).json({ status: 0, errors: ['new_owner_id is required'] });
+  }
+
+  // Cannot transfer to yourself
+  if (new_owner_id === req.dbUser.id) {
+    return res.status(400).json({ status: 0, errors: ['You are already the owner'] });
+  }
+
+  // Verify the new owner is actually subscribed
+  const isSubscribed = db.get(
+    'SELECT 1 FROM app_subscriptions WHERE application_id = ? AND user_id = ?',
+    [app.id, new_owner_id]
+  );
+
+  if (!isSubscribed) {
+    return res.status(400).json({ status: 0, errors: ['New owner must be a subscriber of this app'] });
+  }
+
+  // Transfer ownership
+  db.run('UPDATE applications SET user_id = ? WHERE id = ?', [new_owner_id, app.id]);
+
+  res.json({ status: 1 });
+});
+
+/**
  * POST /api/v1/applications/:id/unsubscribe
  * Unsubscribe current user from an app.
- * Owner cannot unsubscribe from their own app.
+ *
+ * If the user is the app owner:
+ *   - If other subscribers exist → reject (must transfer ownership first)
+ *   - If sole subscriber → requires body { action: 'delete' | 'abandon' }
+ *     - 'delete': deletes the app entirely
+ *     - 'abandon': unsubscribes owner; first future subscriber becomes new owner
  */
 router.post('/:id/unsubscribe', authenticateUser, (req, res) => {
   const app = db.get('SELECT * FROM applications WHERE id = ?', [req.params.id]);
@@ -513,14 +570,57 @@ router.post('/:id/unsubscribe', authenticateUser, (req, res) => {
     return res.status(404).json({ status: 0, errors: ['Application not found'] });
   }
 
-  // Remove subscription
+  const isOwner = app.user_id === req.dbUser.id;
+
+  if (isOwner) {
+    // Count other subscribers (excluding owner)
+    const otherSubs = db.get(
+      'SELECT COUNT(*) as count FROM app_subscriptions WHERE application_id = ? AND user_id != ?',
+      [app.id, req.dbUser.id]
+    );
+
+    if (otherSubs.count > 0) {
+      return res.status(400).json({
+        status: 0,
+        errors: ['Transfer ownership to another subscriber before unsubscribing'],
+        code: 'TRANSFER_REQUIRED',
+        subscriber_count: otherSubs.count,
+      });
+    }
+
+    // Sole subscriber — require explicit action
+    const { action } = req.body || {};
+    if (!action || !['delete', 'abandon'].includes(action)) {
+      return res.status(400).json({
+        status: 0,
+        errors: ['You are the only subscriber. Choose action: "delete" to remove the app, or "abandon" to leave it for future subscribers.'],
+        code: 'SOLE_OWNER',
+      });
+    }
+
+    if (action === 'delete') {
+      db.run('DELETE FROM applications WHERE id = ?', [app.id]);
+      return res.json({ status: 1, action: 'deleted' });
+    }
+
+    // action === 'abandon': unsubscribe but keep the app
+    // The app stays in the public list; first new subscriber becomes owner
+    db.run(
+      'DELETE FROM app_subscriptions WHERE application_id = ? AND user_id = ?',
+      [app.id, req.dbUser.id]
+    );
+    db.run(
+      'DELETE FROM messages WHERE application_id = ? AND user_id = ?',
+      [app.id, req.dbUser.id]
+    );
+    return res.json({ status: 1, action: 'abandoned' });
+  }
+
+  // Non-owner: simple unsubscribe
   db.run(
     'DELETE FROM app_subscriptions WHERE application_id = ? AND user_id = ?',
     [app.id, req.dbUser.id]
   );
-
-  // Delete existing messages from this app for the user
-  // so the message list reflects the unsubscribed state
   db.run(
     'DELETE FROM messages WHERE application_id = ? AND user_id = ?',
     [app.id, req.dbUser.id]

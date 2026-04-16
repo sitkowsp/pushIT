@@ -693,21 +693,128 @@ const PushitApp = (() => {
 
   /**
    * Unsubscribe from an application.
+   * If the user is the owner, special flows apply:
+   *   - Other subscribers exist → must transfer ownership first (opens subscribers modal)
+   *   - Sole subscriber → choose: delete app or abandon (leave for future subscribers)
    */
   async function unsubscribeApp(appId) {
-    if (confirm('Unsubscribe from this app? This will also remove existing messages from this app.')) {
+    const app = applications.find((a) => a.id === appId);
+    const isOwner = app && app.is_owner !== false;
+
+    if (!isOwner) {
+      // Non-owner: simple unsubscribe
+      if (!confirm('Unsubscribe from this app? This will also remove existing messages from this app.')) return;
       try {
         await PushitAuth.apiCall(`/api/v1/applications/${appId}/unsubscribe`, {
           method: 'POST',
         });
         PushitUI.toast('Unsubscribed!', 'success');
         await loadApps();
-        // Refresh messages since unsubscribe deletes messages from this app
         await refreshMessages();
       } catch (err) {
         PushitUI.toast('Failed to unsubscribe', 'error');
       }
+      return;
     }
+
+    // Owner flow: try unsubscribe and handle error codes
+    try {
+      const res = await PushitAuth.apiCall(`/api/v1/applications/${appId}/unsubscribe`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+
+      if (data.status === 1) {
+        // Shouldn't happen without action param, but handle gracefully
+        PushitUI.toast('Unsubscribed!', 'success');
+        await loadApps();
+        await refreshMessages();
+        return;
+      }
+
+      if (data.code === 'TRANSFER_REQUIRED') {
+        // Other subscribers exist — must pick a new owner
+        PushitUI.toast('Choose a new owner from the subscribers list first', 'info', 4000);
+        await viewAppSubscribers(appId);
+        return;
+      }
+
+      if (data.code === 'SOLE_OWNER') {
+        // Sole subscriber — show delete/abandon choice
+        _showOwnerUnsubscribeModal(appId, app.name);
+        return;
+      }
+
+      PushitUI.toast(data.errors?.[0] || 'Failed to unsubscribe', 'error');
+    } catch (err) {
+      PushitUI.toast('Failed to unsubscribe', 'error');
+    }
+  }
+
+  /**
+   * Show modal for sole-owner unsubscribe choice: delete or abandon.
+   */
+  function _showOwnerUnsubscribeModal(appId, appName) {
+    const overlay = PushitUI.showModal('Unsubscribe — You are the Owner', `
+      <p style="margin-bottom:16px;line-height:1.5;color:var(--text-muted);">
+        You are the only subscriber of <strong>${escapeHtml(appName)}</strong>. What would you like to do?
+      </p>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <button id="owner-unsub-abandon" class="btn btn-primary" style="width:100%;">
+          Leave in Public List
+        </button>
+        <p style="font-size:12px;color:var(--text-muted);margin:-6px 0 0 0;">
+          The app stays visible. The first person to subscribe becomes the new owner.
+        </p>
+        <button id="owner-unsub-delete" class="btn btn-danger" style="width:100%;">
+          Delete App Permanently
+        </button>
+        <p style="font-size:12px;color:var(--text-muted);margin:-6px 0 0 0;">
+          The app and all its data will be permanently removed.
+        </p>
+      </div>
+    `);
+
+    overlay.querySelector('#owner-unsub-abandon').addEventListener('click', async () => {
+      try {
+        const res = await PushitAuth.apiCall(`/api/v1/applications/${appId}/unsubscribe`, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'abandon' }),
+        });
+        const data = await res.json();
+        if (data.status === 1) {
+          PushitUI.closeModal();
+          PushitUI.toast('Unsubscribed! App left for future subscribers.', 'success');
+          await loadApps();
+          await refreshMessages();
+        } else {
+          PushitUI.toast(data.errors?.[0] || 'Failed', 'error');
+        }
+      } catch (err) {
+        PushitUI.toast('Failed to unsubscribe', 'error');
+      }
+    });
+
+    overlay.querySelector('#owner-unsub-delete').addEventListener('click', async () => {
+      if (!confirm('Are you sure? This will permanently delete the app and all messages.')) return;
+      try {
+        const res = await PushitAuth.apiCall(`/api/v1/applications/${appId}/unsubscribe`, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'delete' }),
+        });
+        const data = await res.json();
+        if (data.status === 1) {
+          PushitUI.closeModal();
+          PushitUI.toast('App deleted!', 'success');
+          await loadApps();
+          await refreshMessages();
+        } else {
+          PushitUI.toast(data.errors?.[0] || 'Failed', 'error');
+        }
+      } catch (err) {
+        PushitUI.toast('Failed to delete app', 'error');
+      }
+    });
   }
 
   /**
@@ -761,11 +868,19 @@ const PushitApp = (() => {
    */
   async function subscribeApp(appId) {
     try {
-      await PushitAuth.apiCall(`/api/v1/applications/${appId}/subscribe`, {
+      const res = await PushitAuth.apiCall(`/api/v1/applications/${appId}/subscribe`, {
         method: 'POST',
       });
-      PushitUI.toast('Subscribed!', 'success');
-      await browsePublicApps();
+      const data = await res.json();
+      if (data.status === 1) {
+        const msg = data.became_owner
+          ? 'Subscribed! You are now the owner of this app.'
+          : 'Subscribed!';
+        PushitUI.toast(msg, 'success', data.became_owner ? 5000 : 3000);
+        await browsePublicApps();
+      } else {
+        PushitUI.toast(data.errors?.[0] || 'Failed to subscribe', 'error');
+      }
     } catch (err) {
       PushitUI.toast('Failed to subscribe', 'error');
     }
@@ -1567,6 +1682,7 @@ const PushitApp = (() => {
 
   /**
    * View subscribers of an application. Owner only.
+   * Shows "Make Owner" and "Remove" buttons for each non-owner subscriber.
    */
   async function viewAppSubscribers(appId) {
     try {
@@ -1596,9 +1712,16 @@ const PushitApp = (() => {
           ? sub.organizations.map((o) => escapeHtml(o.name)).join(', ')
           : '<span style="color:var(--text-muted);">No org</span>';
 
-        const removeBtn = sub.is_owner
-          ? '<span style="color:var(--text-muted);font-size:11px;">Owner</span>'
-          : `<button class="btn btn-danger btn-small" data-action="force-unsubscribe" data-app-id="${appId}" data-user-id="${sub.id}">Remove</button>`;
+        let actionBtns;
+        if (sub.is_owner) {
+          actionBtns = '<span style="color:var(--primary);font-size:11px;font-weight:600;">Owner</span>';
+        } else {
+          actionBtns = `
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <button class="btn btn-small" data-action="make-owner" data-app-id="${appId}" data-user-id="${sub.id}" style="font-size:11px;">Make Owner</button>
+              <button class="btn btn-danger btn-small" data-action="force-unsubscribe" data-app-id="${appId}" data-user-id="${sub.id}" style="font-size:11px;">Remove</button>
+            </div>`;
+        }
 
         return `
           <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
@@ -1608,7 +1731,7 @@ const PushitApp = (() => {
               <div style="color:var(--text-muted);font-size:11px;">Orgs: ${orgsText}</div>
             </div>
             <div style="flex-shrink:0;margin-left:8px;">
-              ${removeBtn}
+              ${actionBtns}
             </div>
           </div>
         `;
@@ -1619,6 +1742,30 @@ const PushitApp = (() => {
       `);
     } catch (err) {
       PushitUI.toast('Failed to load subscribers', 'error');
+    }
+  }
+
+  /**
+   * Transfer app ownership to another subscriber.
+   */
+  async function transferOwnership(appId, newOwnerId) {
+    if (!confirm('Transfer ownership of this app to this user? You will no longer be the owner.')) return;
+
+    try {
+      const res = await PushitAuth.apiCall(`/api/v1/applications/${appId}/transfer-ownership`, {
+        method: 'PUT',
+        body: JSON.stringify({ new_owner_id: newOwnerId }),
+      });
+      const data = await res.json();
+      if (data.status === 1) {
+        PushitUI.toast('Ownership transferred!', 'success');
+        PushitUI.closeModal();
+        await loadApps();
+      } else {
+        PushitUI.toast(data.errors?.[0] || 'Failed to transfer ownership', 'error');
+      }
+    } catch (err) {
+      PushitUI.toast('Failed to transfer ownership', 'error');
     }
   }
 
@@ -1730,6 +1877,7 @@ const PushitApp = (() => {
     deleteSmtp,
     viewAppSubscribers,
     forceUnsubscribeUser,
+    transferOwnership,
   };
 })();
 

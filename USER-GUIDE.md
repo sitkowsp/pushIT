@@ -95,7 +95,9 @@ For apps you created, three action buttons appear:
 
 - **Edit** — change the app name, description, color, icon URL, or visibility
 - **Delete** — permanently remove the app and its token. This cannot be undone
-- **Unsubscribe** — stop receiving notifications from this app (also deletes existing messages from it)
+- **Unsubscribe** — stop receiving notifications from this app (also deletes existing messages from it). If you are the owner, the behavior depends on whether other subscribers exist:
+  - **Other subscribers exist** — you must first transfer ownership using the **Make Owner** button in the Subscribers modal before you can unsubscribe
+  - **No other subscribers** — a choice modal appears with two options: **Leave in Public List** (abandons the app so future subscribers can claim it) or **Delete App Permanently** (removes the app entirely)
 
 ### Subscriber management
 
@@ -103,7 +105,10 @@ For apps you own, a **Subscribers (N)** button appears on the app card showing t
 
 The subscriber list shows each user's name, email address, and organization memberships. The app owner is labeled **Owner** and cannot be removed.
 
-For any other subscriber, a **Remove** button lets you force-unsubscribe them from the app. Removing a subscriber also deletes their messages from this app.
+For any other subscriber, two buttons are available:
+
+- **Make Owner** — transfers ownership of the app to that subscriber. You will remain subscribed but will no longer be the owner. This is useful when handing off responsibility for an app to another team member
+- **Remove** — force-unsubscribe them from the app. Removing a subscriber also deletes their messages from this app
 
 ### Creating a new app
 
@@ -119,6 +124,8 @@ Your new app appears with a generated API token. Copy this token — you'll need
 Tap **Browse Public Apps** at the bottom of the Apps list to see all public apps in your organization. From there you can subscribe to any app to start receiving its notifications.
 
 For public apps you don't own, you'll see a **Subscribe** or **Unsubscribe** button.
+
+If you subscribe to an app whose owner is no longer subscribed (an orphaned app), you automatically become the new owner. A toast notification confirms: "You are now the owner of this app."
 
 ---
 

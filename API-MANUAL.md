@@ -445,13 +445,87 @@ Only accepts organizations where the authenticated user is a member. Returns an 
 { "status": 1 }
 ```
 
-### Subscribe / Unsubscribe
+### Subscribe
 
 **POST** `/api/v1/applications/:id/subscribe` — Subscribe to a public app.
 
 > **v1.12.0:** This endpoint now enforces org-visibility restrictions. If the app is restricted to specific organizations and the user is not a member of any allowed organization, the request is rejected with **403 Forbidden**.
 
+If the app's current owner is not subscribed (orphaned app), the new subscriber automatically becomes the owner. The response includes a `became_owner` field indicating whether ownership was assigned:
+
+```json
+{ "status": 1, "became_owner": true }
+```
+
+When no ownership change occurs:
+
+```json
+{ "status": 1, "became_owner": false }
+```
+
+### Unsubscribe
+
 **POST** `/api/v1/applications/:id/unsubscribe` — Unsubscribe from an app. Also deletes existing messages from that app for the user.
+
+Behavior varies based on ownership:
+
+- **Non-owner:** Simple unsubscribe. Returns `{ "status": 1 }`.
+- **Owner with other subscribers:** Returns **400 Bad Request** with `code: "TRANSFER_REQUIRED"`. The owner must transfer ownership before unsubscribing (see Transfer Ownership below).
+- **Sole owner (no other subscribers):** Requires an `action` field in the request body:
+
+```json
+{ "action": "delete" }
+```
+
+or:
+
+```json
+{ "action": "abandon" }
+```
+
+| Action      | Effect                                                        |
+|-------------|---------------------------------------------------------------|
+| `"delete"`  | Permanently removes the app                                   |
+| `"abandon"` | Leaves the app in the public list for future subscribers       |
+
+Response:
+
+```json
+{ "status": 1, "action": "deleted" }
+```
+
+or:
+
+```json
+{ "status": 1, "action": "abandoned" }
+```
+
+### Transfer ownership
+
+**PUT** `/api/v1/applications/:id/transfer-ownership`
+
+Transfer app ownership to another subscriber. Owner only. Requires session cookie authentication.
+
+```bash
+curl -s -X PUT https://push.example.com/api/v1/applications/APP_ID/transfer-ownership \
+  -H "Content-Type: application/json" \
+  -H "Cookie: connect.sid=SESSION" \
+  -H "X-Requested-With: XMLHttpRequest" \
+  -d '{ "new_owner_id": "USER_ID" }'
+```
+
+| Parameter      | Type   | Required | Description                              |
+|----------------|--------|----------|------------------------------------------|
+| `new_owner_id` | string | Yes      | User ID of the subscriber to become owner |
+
+```json
+{ "status": 1 }
+```
+
+Errors:
+
+- **400 Bad Request** — `new_owner_id` is missing, the target user is already the owner, or the target user is not a subscriber of the app
+- **404 Not Found** — the authenticated user is not the app owner
 
 ### List subscribers
 
