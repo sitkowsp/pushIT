@@ -404,6 +404,104 @@ router.put('/:id/visibility', authenticateUser, (req, res) => {
 });
 
 /**
+ * GET /api/v1/applications/:id/subscribers
+ * List all subscribers of an app with their org memberships.
+ * Owner only.
+ */
+router.get('/:id/subscribers', authenticateUser, (req, res) => {
+  const app = db.get(
+    'SELECT * FROM applications WHERE id = ? AND user_id = ?',
+    [req.params.id, req.dbUser.id]
+  );
+
+  if (!app) {
+    return res.status(404).json({ status: 0, errors: ['Application not found or you are not the owner'] });
+  }
+
+  const subscribers = db.all(
+    `SELECT u.id, u.display_name, u.email, sub.created_at as subscribed_at
+     FROM app_subscriptions sub
+     JOIN users u ON sub.user_id = u.id
+     WHERE sub.application_id = ?
+     ORDER BY sub.created_at ASC`,
+    [app.id]
+  );
+
+  // For each subscriber, get their org memberships
+  const result = subscribers.map((sub) => {
+    const orgs = db.all(
+      `SELECT o.id, o.name, om.role FROM org_members om
+       JOIN organizations o ON om.organization_id = o.id
+       WHERE om.user_id = ?
+       ORDER BY o.name`,
+      [sub.id]
+    );
+    return {
+      id: sub.id,
+      display_name: sub.display_name,
+      email: sub.email,
+      subscribed_at: sub.subscribed_at,
+      organizations: orgs,
+      is_owner: sub.id === req.dbUser.id,
+    };
+  });
+
+  res.json({
+    status: 1,
+    subscribers: result,
+    total: result.length,
+  });
+});
+
+/**
+ * DELETE /api/v1/applications/:id/subscribers/:userId
+ * Force-unsubscribe a user from an app. Owner only.
+ * Also deletes the user's messages from this app.
+ * Cannot remove the owner themselves.
+ */
+router.delete('/:id/subscribers/:userId', authenticateUser, (req, res) => {
+  const app = db.get(
+    'SELECT * FROM applications WHERE id = ? AND user_id = ?',
+    [req.params.id, req.dbUser.id]
+  );
+
+  if (!app) {
+    return res.status(404).json({ status: 0, errors: ['Application not found or you are not the owner'] });
+  }
+
+  const targetUserId = req.params.userId;
+
+  // Cannot remove the app owner
+  if (targetUserId === req.dbUser.id) {
+    return res.status(400).json({ status: 0, errors: ['Cannot unsubscribe the app owner'] });
+  }
+
+  // Verify the user is actually subscribed
+  const subscription = db.get(
+    'SELECT 1 FROM app_subscriptions WHERE application_id = ? AND user_id = ?',
+    [app.id, targetUserId]
+  );
+
+  if (!subscription) {
+    return res.status(404).json({ status: 0, errors: ['User is not subscribed to this app'] });
+  }
+
+  // Remove subscription
+  db.run(
+    'DELETE FROM app_subscriptions WHERE application_id = ? AND user_id = ?',
+    [app.id, targetUserId]
+  );
+
+  // Delete the user's messages from this app
+  db.run(
+    'DELETE FROM messages WHERE application_id = ? AND user_id = ?',
+    [app.id, targetUserId]
+  );
+
+  res.json({ status: 1 });
+});
+
+/**
  * POST /api/v1/applications/:id/unsubscribe
  * Unsubscribe current user from an app.
  * Owner cannot unsubscribe from their own app.

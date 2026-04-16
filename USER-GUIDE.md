@@ -97,6 +97,14 @@ For apps you created, three action buttons appear:
 - **Delete** — permanently remove the app and its token. This cannot be undone
 - **Unsubscribe** — stop receiving notifications from this app (also deletes existing messages from it)
 
+### Subscriber management
+
+For apps you own, a **Subscribers (N)** button appears on the app card showing the current subscriber count. Tap it to open a modal listing all users subscribed to the app.
+
+The subscriber list shows each user's name, email address, and organization memberships. The app owner is labeled **Owner** and cannot be removed.
+
+For any other subscriber, a **Remove** button lets you force-unsubscribe them from the app. Removing a subscriber also deletes their messages from this app.
+
 ### Creating a new app
 
 1. Tap **+ New App** in the top right

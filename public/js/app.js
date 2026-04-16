@@ -1563,6 +1563,90 @@ const PushitApp = (() => {
     }
   }
 
+  // ─── Subscriber Management ──────────────────────────────────────────
+
+  /**
+   * View subscribers of an application. Owner only.
+   */
+  async function viewAppSubscribers(appId) {
+    try {
+      const res = await PushitAuth.apiCall(`/api/v1/applications/${appId}/subscribers`);
+      const data = await res.json();
+      if (data.status !== 1) {
+        PushitUI.toast(data.errors?.[0] || 'Failed to load subscribers', 'error');
+        return;
+      }
+
+      const subs = data.subscribers;
+      const app = applications.find((a) => a.id === appId);
+      const appName = app ? app.name : 'App';
+
+      if (subs.length === 0) {
+        PushitUI.showModal(`${escapeHtml(appName)} — Subscribers`, `
+          <div class="empty-state" style="padding:40px 0;">
+            <div class="icon">👥</div>
+            <div class="title">No subscribers</div>
+          </div>
+        `);
+        return;
+      }
+
+      const subsHtml = subs.map((sub) => {
+        const orgsText = sub.organizations.length > 0
+          ? sub.organizations.map((o) => escapeHtml(o.name)).join(', ')
+          : '<span style="color:var(--text-muted);">No org</span>';
+
+        const removeBtn = sub.is_owner
+          ? '<span style="color:var(--text-muted);font-size:11px;">Owner</span>'
+          : `<button class="btn btn-danger btn-small" data-action="force-unsubscribe" data-app-id="${appId}" data-user-id="${sub.id}">Remove</button>`;
+
+        return `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:500;">${escapeHtml(sub.display_name)}</div>
+              <div style="color:var(--text-muted);font-size:12px;">${escapeHtml(sub.email)}</div>
+              <div style="color:var(--text-muted);font-size:11px;">Orgs: ${orgsText}</div>
+            </div>
+            <div style="flex-shrink:0;margin-left:8px;">
+              ${removeBtn}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      PushitUI.showModal(`${escapeHtml(appName)} — Subscribers (${subs.length})`, `
+        <div>${subsHtml}</div>
+      `);
+    } catch (err) {
+      PushitUI.toast('Failed to load subscribers', 'error');
+    }
+  }
+
+  /**
+   * Force-unsubscribe a user from an app. Owner only.
+   */
+  async function forceUnsubscribeUser(appId, userId) {
+    if (!confirm('Remove this subscriber? Their messages from this app will also be deleted.')) return;
+
+    try {
+      const res = await PushitAuth.apiCall(`/api/v1/applications/${appId}/subscribers/${userId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (data.status === 1) {
+        PushitUI.toast('Subscriber removed', 'success');
+        // Refresh the modal
+        await viewAppSubscribers(appId);
+        // Also refresh app list to update subscriber count
+        await loadApps();
+      } else {
+        PushitUI.toast(data.errors?.[0] || 'Failed to remove subscriber', 'error');
+      }
+    } catch (err) {
+      PushitUI.toast('Failed to remove subscriber', 'error');
+    }
+  }
+
   /**
    * Bind all UI event listeners.
    */
@@ -1644,6 +1728,8 @@ const PushitApp = (() => {
     loadSmtpConfig,
     editSmtp,
     deleteSmtp,
+    viewAppSubscribers,
+    forceUnsubscribeUser,
   };
 })();
 

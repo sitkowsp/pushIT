@@ -191,6 +191,20 @@ const PushitUI = (() => {
         return;
       }
 
+      // View app subscribers
+      const viewSubsBtn = e.target.closest('[data-action="view-subscribers"]');
+      if (viewSubsBtn) {
+        PushitApp.viewAppSubscribers(viewSubsBtn.dataset.id);
+        return;
+      }
+
+      // Force-unsubscribe a user
+      const forceUnsubBtn = e.target.closest('[data-action="force-unsubscribe"]');
+      if (forceUnsubBtn) {
+        PushitApp.forceUnsubscribeUser(forceUnsubBtn.dataset.appId, forceUnsubBtn.dataset.userId);
+        return;
+      }
+
       // Delete all messages
       const deleteAllBtn = e.target.closest('[data-action="delete-all-messages"]');
       if (deleteAllBtn) {
@@ -334,6 +348,9 @@ const PushitUI = (() => {
             <button data-action="edit-app" data-id="${app.id}" style="flex:1;">Edit</button>
             <button data-action="delete-app" data-id="${app.id}" class="danger" style="flex:1;">Delete</button>
             ${subscribeBtn}
+          </div>
+          <div class="app-actions" style="margin-top:4px;">
+            <button data-action="view-subscribers" data-id="${app.id}" style="flex:1;">Subscribers (${subscriberCount})</button>
           </div>`;
       } else {
         actionButtons = `

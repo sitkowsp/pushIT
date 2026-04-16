@@ -453,6 +453,77 @@ Only accepts organizations where the authenticated user is a member. Returns an 
 
 **POST** `/api/v1/applications/:id/unsubscribe` — Unsubscribe from an app. Also deletes existing messages from that app for the user.
 
+### List subscribers
+
+**GET** `/api/v1/applications/:id/subscribers`
+
+List all subscribers of an app you own. Owner only. Each subscriber includes their organization memberships.
+
+```bash
+curl -s https://push.example.com/api/v1/applications/APP_ID/subscribers \
+  -H "Cookie: connect.sid=SESSION" \
+  -H "X-Requested-With: XMLHttpRequest"
+```
+
+Response:
+
+```json
+{
+  "status": 1,
+  "subscribers": [
+    {
+      "id": "user-uuid",
+      "display_name": "Alice",
+      "email": "alice@example.com",
+      "subscribed_at": "2026-04-10T08:00:00.000Z",
+      "organizations": [
+        { "id": "org-uuid", "name": "Ops Team", "role": "owner" }
+      ],
+      "is_owner": true
+    },
+    {
+      "id": "user-uuid-2",
+      "display_name": "Bob",
+      "email": "bob@example.com",
+      "subscribed_at": "2026-04-12T14:30:00.000Z",
+      "organizations": [
+        { "id": "org-uuid", "name": "Ops Team", "role": "member" }
+      ],
+      "is_owner": false
+    }
+  ],
+  "total": 2
+}
+```
+
+| Field                          | Type    | Description                                      |
+|--------------------------------|---------|--------------------------------------------------|
+| `subscribers[].id`             | string  | User ID                                          |
+| `subscribers[].display_name`   | string  | User's display name                              |
+| `subscribers[].email`          | string  | User's email address                             |
+| `subscribers[].subscribed_at`  | string  | ISO 8601 timestamp of when the user subscribed   |
+| `subscribers[].organizations`  | array   | Organizations the user belongs to (id, name, role) |
+| `subscribers[].is_owner`       | boolean | Whether this subscriber is the app owner         |
+| `total`                        | integer | Total number of subscribers                      |
+
+### Remove subscriber
+
+**DELETE** `/api/v1/applications/:id/subscribers/:userId`
+
+Force-unsubscribe a user from an app you own. Owner only. Also deletes the user's messages from this app. The app owner cannot be removed.
+
+```bash
+curl -s -X DELETE https://push.example.com/api/v1/applications/APP_ID/subscribers/USER_ID \
+  -H "Cookie: connect.sid=SESSION" \
+  -H "X-Requested-With: XMLHttpRequest"
+```
+
+```json
+{ "status": 1 }
+```
+
+Returns **403 Forbidden** if you are not the app owner. Returns **400 Bad Request** if you attempt to remove the owner.
+
 ---
 
 ## Filters
