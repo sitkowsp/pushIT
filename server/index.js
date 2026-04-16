@@ -36,19 +36,32 @@ app.set('trust proxy', 1);
 const baseUrlHost = new URL(config.baseUrl).host;
 const wsProtocol = config.isHttps ? 'wss:' : 'ws:';
 
+// Build CSP directives — disable upgrade-insecure-requests on plain HTTP
+const cspDirectives = {
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'"],
+  styleSrc: ["'self'", "'unsafe-inline'"],
+  connectSrc: [
+    "'self'",
+    `${wsProtocol}//${baseUrlHost}`,
+  ],
+  imgSrc: ["'self'", "data:", "https:"],
+};
+
+// Helmet defaults include upgrade-insecure-requests which forces the browser
+// to rewrite http:// → https:// for ALL subresources.  This breaks plain HTTP.
+if (!config.isHttps) {
+  cspDirectives.upgradeInsecureRequests = null;  // disable the directive
+}
+
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      connectSrc: [
-        "'self'",
-        `${wsProtocol}//${baseUrlHost}`,
-      ],
-      imgSrc: ["'self'", "data:", "https:"],
-    },
-  },
+  contentSecurityPolicy: { directives: cspDirectives },
+  // HSTS tells browsers to ONLY use HTTPS for this domain — must be off on HTTP
+  strictTransportSecurity: config.isHttps,
+  // Cross-Origin-Opener-Policy is ignored on non-secure origins, disable to avoid warnings
+  crossOriginOpenerPolicy: config.isHttps,
+  // Origin-Agent-Cluster header also requires secure context
+  originAgentCluster: config.isHttps,
 }));
 
 // CORS: allow the BASE_URL origin.  For LAN deployments the browser origin
