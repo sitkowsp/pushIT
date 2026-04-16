@@ -209,6 +209,26 @@ CREATE TABLE IF NOT EXISTS app_subscriptions (
 CREATE INDEX IF NOT EXISTS idx_app_subs_user ON app_subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_app_subs_app ON app_subscriptions(application_id);
 
+-- App-to-org visibility (restricts which orgs can see a public app)
+-- No entries = visible to all orgs (default)
+CREATE TABLE IF NOT EXISTS app_org_visibility (
+  application_id TEXT NOT NULL,
+  organization_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (application_id, organization_id),
+  FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
+  FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_app_org_vis_app ON app_org_visibility(application_id);
+CREATE INDEX IF NOT EXISTS idx_app_org_vis_org ON app_org_visibility(organization_id);
+
+-- Runtime settings (e.g. SMTP configured from UI)
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_users_entra ON users(entra_object_id);
 CREATE INDEX IF NOT EXISTS idx_users_key ON users(user_key);

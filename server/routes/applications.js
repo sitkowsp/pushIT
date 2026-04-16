@@ -37,6 +37,21 @@ router.get('/', authenticateUser, (req, res) => {
       [app.id, req.dbUser.id]
     );
 
+    // For owned apps, include org visibility info
+    let orgVisibility = null;
+    if (isOwner && app.visibility === 'public') {
+      const visOrgs = db.all(
+        `SELECT o.id, o.name FROM app_org_visibility aov
+         JOIN organizations o ON aov.organization_id = o.id
+         WHERE aov.application_id = ?`,
+        [app.id]
+      );
+      orgVisibility = {
+        all_orgs: visOrgs.length === 0,
+        organizations: visOrgs,
+      };
+    }
+
     return {
       id: app.id,
       name: app.name,
@@ -51,6 +66,7 @@ router.get('/', authenticateUser, (req, res) => {
       is_owner: isOwner,
       subscriber_count: subscriberCount.count,
       is_subscribed: !!isSubscribed,
+      org_visibility: orgVisibility,
     };
   };
 
@@ -131,7 +147,12 @@ router.put('/:id', authenticateUser, (req, res) => {
   if (description !== undefined) { updates.push('description = ?'); params.push(description); }
   if (icon_url !== undefined) { updates.push('icon_url = ?'); params.push(icon_url); }
   if (is_active !== undefined) { updates.push('is_active = ?'); params.push(is_active ? 1 : 0); }
-  if (visibility !== undefined) { updates.push('visibility = ?'); params.push(visibility); }
+  if (visibility !== undefined) {
+    if (!['private', 'public'].includes(visibility)) {
+      return res.status(400).json({ status: 0, errors: ['Visibility must be private or public'] });
+    }
+    updates.push('visibility = ?'); params.push(visibility);
+  }
   if (color !== undefined) { updates.push('color = ?'); params.push(color); }
 
   if (updates.length > 0) {
@@ -185,11 +206,35 @@ router.delete('/:id', authenticateUser, (req, res) => {
 
 /**
  * GET /api/v1/applications/public
- * List all public apps in the tenant.
- * No auth needed beyond user auth.
+ * List all public apps visible to the current user.
+ * Respects org-visibility: if an app has org restrictions, only members
+ * of those orgs can see it. Apps with no restrictions are visible to all.
  */
 router.get('/public', authenticateUser, (req, res) => {
-  const publicApps = db.all('SELECT * FROM applications WHERE visibility = ? ORDER BY name', ['public']);
+  // Get all public apps, then filter by org visibility
+  const allPublicApps = db.all('SELECT * FROM applications WHERE visibility = ? ORDER BY name', ['public']);
+
+  const publicApps = allPublicApps.filter((app) => {
+    // Check if this app has org-visibility restrictions
+    const visRestrictions = db.all(
+      'SELECT organization_id FROM app_org_visibility WHERE application_id = ?',
+      [app.id]
+    );
+    if (visRestrictions.length === 0) {
+      // No restrictions — visible to everyone
+      return true;
+    }
+    // Check if user is a member of any of the allowed orgs
+    const orgIds = visRestrictions.map((r) => r.organization_id);
+    for (const orgId of orgIds) {
+      const isMember = db.get(
+        'SELECT 1 FROM org_members WHERE organization_id = ? AND user_id = ?',
+        [orgId, req.dbUser.id]
+      );
+      if (isMember) return true;
+    }
+    return false;
+  });
 
   const formatApp = (app) => {
     const subscriberCount = db.get(
@@ -240,6 +285,21 @@ router.post('/:id/subscribe', authenticateUser, (req, res) => {
     return res.status(400).json({ status: 0, errors: ['Cannot subscribe to private app'] });
   }
 
+  // Enforce org-visibility restrictions
+  const visRestrictions = db.all(
+    'SELECT organization_id FROM app_org_visibility WHERE application_id = ?',
+    [app.id]
+  );
+  if (visRestrictions.length > 0) {
+    const orgIds = visRestrictions.map((r) => r.organization_id);
+    const isMember = orgIds.some((orgId) =>
+      db.get('SELECT 1 FROM org_members WHERE organization_id = ? AND user_id = ?', [orgId, req.dbUser.id])
+    );
+    if (!isMember) {
+      return res.status(403).json({ status: 0, errors: ['This app is restricted to specific organizations'] });
+    }
+  }
+
   const alreadySubscribed = db.get(
     'SELECT 1 FROM app_subscriptions WHERE application_id = ? AND user_id = ?',
     [app.id, req.dbUser.id]
@@ -253,6 +313,92 @@ router.post('/:id/subscribe', authenticateUser, (req, res) => {
     'INSERT INTO app_subscriptions (application_id, user_id) VALUES (?, ?)',
     [app.id, req.dbUser.id]
   );
+
+  res.json({ status: 1 });
+});
+
+/**
+ * GET /api/v1/applications/:id/visibility
+ * Get org-visibility settings for an app. Owner only.
+ */
+router.get('/:id/visibility', authenticateUser, (req, res) => {
+  const app = db.get('SELECT * FROM applications WHERE id = ? AND user_id = ?', [req.params.id, req.dbUser.id]);
+  if (!app) {
+    return res.status(404).json({ status: 0, errors: ['Application not found'] });
+  }
+
+  const visibleOrgs = db.all(
+    `SELECT o.id, o.name FROM app_org_visibility aov
+     JOIN organizations o ON aov.organization_id = o.id
+     WHERE aov.application_id = ?`,
+    [app.id]
+  );
+
+  // Get all orgs the user is a member of (for the UI selector)
+  const userOrgs = db.all(
+    `SELECT o.id, o.name FROM organizations o
+     JOIN org_members om ON o.id = om.organization_id
+     WHERE om.user_id = ?
+     ORDER BY o.name`,
+    [req.dbUser.id]
+  );
+
+  res.json({
+    status: 1,
+    visible_orgs: visibleOrgs,
+    all_user_orgs: userOrgs,
+    // If no entries, the app is visible to all orgs
+    all_orgs: visibleOrgs.length === 0,
+  });
+});
+
+/**
+ * PUT /api/v1/applications/:id/visibility
+ * Set org-visibility for a public app. Owner only.
+ * Pass { organization_ids: [...] } to restrict, or { all_orgs: true } for unrestricted.
+ */
+router.put('/:id/visibility', authenticateUser, (req, res) => {
+  const app = db.get('SELECT * FROM applications WHERE id = ? AND user_id = ?', [req.params.id, req.dbUser.id]);
+  if (!app) {
+    return res.status(404).json({ status: 0, errors: ['Application not found'] });
+  }
+
+  const { organization_ids, all_orgs } = req.body;
+
+  if (all_orgs) {
+    // Remove all restrictions — app visible to everyone
+    db.run('DELETE FROM app_org_visibility WHERE application_id = ?', [app.id]);
+    return res.json({ status: 1 });
+  }
+
+  if (!organization_ids || !Array.isArray(organization_ids) || organization_ids.length === 0) {
+    return res.status(400).json({ status: 0, errors: ['Provide organization_ids or set all_orgs: true'] });
+  }
+
+  // Validate all org IDs first — only accept orgs the user is a member of
+  const validOrgIds = [];
+  for (const orgId of organization_ids) {
+    const isMember = db.get(
+      'SELECT 1 FROM org_members WHERE organization_id = ? AND user_id = ?',
+      [orgId, req.dbUser.id]
+    );
+    if (isMember) {
+      validOrgIds.push(orgId);
+    }
+  }
+
+  if (validOrgIds.length === 0) {
+    return res.status(400).json({ status: 0, errors: ['None of the provided organizations are valid'] });
+  }
+
+  // Replace visibility entries atomically
+  db.run('DELETE FROM app_org_visibility WHERE application_id = ?', [app.id]);
+  for (const orgId of validOrgIds) {
+    db.run(
+      'INSERT INTO app_org_visibility (application_id, organization_id) VALUES (?, ?)',
+      [app.id, orgId]
+    );
+  }
 
   res.json({ status: 1 });
 });

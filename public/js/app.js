@@ -401,6 +401,14 @@ const PushitApp = (() => {
    * Create a new application.
    */
   async function createApp() {
+    // Load user orgs for visibility selector
+    let userOrgs = [];
+    try {
+      const orgsRes = await PushitAuth.apiCall('/api/v1/organizations');
+      const orgsData = await orgsRes.json();
+      if (orgsData.status === 1) userOrgs = orgsData.organizations || [];
+    } catch (e) { /* ignore */ }
+
     PushitUI.showModal('New Application', `
       <div class="form-group">
         <label>Name</label>
@@ -423,12 +431,49 @@ const PushitApp = (() => {
           </label>
         </div>
       </div>
+      <div id="org-visibility-section" style="display:none;">
+        ${userOrgs.length > 0 ? `
+          <div class="form-group">
+            <label>Visible to organizations</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:6px;">
+              <input type="checkbox" id="new-app-all-orgs" checked />
+              <span>All organizations</span>
+            </label>
+            <div id="new-app-org-list" style="display:none;padding-left:4px;">
+              ${userOrgs.map((o) => `
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:4px;">
+                  <input type="checkbox" class="org-vis-cb" value="${o.id}" />
+                  <span>${escapeHtml(o.name)}</span>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+      </div>
       <div class="form-group">
         <label>Color</label>
         <input type="color" id="new-app-color" value="#e94560" />
       </div>
       <button id="submit-new-app-btn" class="btn btn-primary" style="width:100%;">Create</button>
     `);
+
+    // Show/hide org visibility based on public/private selection
+    document.querySelectorAll('input[name="visibility"]').forEach((r) => {
+      r.addEventListener('change', () => {
+        const sec = document.getElementById('org-visibility-section');
+        if (sec) sec.style.display = r.value === 'public' ? 'block' : 'none';
+      });
+    });
+
+    // Toggle individual org checkboxes when "all orgs" is unchecked
+    const allOrgsCheck = document.getElementById('new-app-all-orgs');
+    if (allOrgsCheck) {
+      allOrgsCheck.addEventListener('change', () => {
+        const list = document.getElementById('new-app-org-list');
+        if (list) list.style.display = allOrgsCheck.checked ? 'none' : 'block';
+      });
+    }
+
     document.getElementById('submit-new-app-btn').addEventListener('click', submitNewApp);
   }
 
@@ -455,6 +500,19 @@ const PushitApp = (() => {
       });
       const data = await res.json();
       if (data.status === 1) {
+        // Set org visibility if public and orgs are selected
+        if (visibility === 'public') {
+          const allOrgsCheck = document.getElementById('new-app-all-orgs');
+          if (allOrgsCheck && !allOrgsCheck.checked) {
+            const selectedOrgs = Array.from(document.querySelectorAll('.org-vis-cb:checked')).map((cb) => cb.value);
+            if (selectedOrgs.length > 0) {
+              await PushitAuth.apiCall(`/api/v1/applications/${data.application.id}/visibility`, {
+                method: 'PUT',
+                body: JSON.stringify({ organization_ids: selectedOrgs }),
+              });
+            }
+          }
+        }
         PushitUI.closeModal();
         PushitUI.toast(`App created! Token: ${data.application.token}`, 'success', 5000);
         await loadApps();
@@ -476,6 +534,21 @@ const PushitApp = (() => {
 
     const color = app.color || '#e94560';
     const visibility = app.visibility || 'private';
+
+    // Load user orgs and current visibility settings
+    let userOrgs = [];
+    let currentVisOrgs = [];
+    let allOrgs = true;
+    try {
+      const orgsRes = await PushitAuth.apiCall('/api/v1/organizations');
+      const orgsData = await orgsRes.json();
+      if (orgsData.status === 1) userOrgs = orgsData.organizations || [];
+    } catch (e) { /* ignore */ }
+
+    if (app.org_visibility) {
+      allOrgs = app.org_visibility.all_orgs;
+      currentVisOrgs = (app.org_visibility.organizations || []).map((o) => o.id);
+    }
 
     PushitUI.showModal('Edit Application', `
       <div class="form-group">
@@ -499,12 +572,49 @@ const PushitApp = (() => {
           </label>
         </div>
       </div>
+      <div id="edit-org-visibility-section" style="display:${visibility === 'public' ? 'block' : 'none'};">
+        ${userOrgs.length > 0 ? `
+          <div class="form-group">
+            <label>Visible to organizations</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:6px;">
+              <input type="checkbox" id="edit-app-all-orgs" ${allOrgs ? 'checked' : ''} />
+              <span>All organizations</span>
+            </label>
+            <div id="edit-app-org-list" style="display:${allOrgs ? 'none' : 'block'};padding-left:4px;">
+              ${userOrgs.map((o) => `
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:4px;">
+                  <input type="checkbox" class="edit-org-vis-cb" value="${o.id}" ${currentVisOrgs.includes(o.id) ? 'checked' : ''} />
+                  <span>${escapeHtml(o.name)}</span>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+      </div>
       <div class="form-group">
         <label>Color</label>
         <input type="color" id="edit-app-color" value="${escapeHtml(color)}" />
       </div>
       <button id="submit-edit-app-btn" class="btn btn-primary" style="width:100%;">Save Changes</button>
     `);
+
+    // Show/hide org visibility based on public/private selection
+    document.querySelectorAll('input[name="edit-visibility"]').forEach((r) => {
+      r.addEventListener('change', () => {
+        const sec = document.getElementById('edit-org-visibility-section');
+        if (sec) sec.style.display = r.value === 'public' ? 'block' : 'none';
+      });
+    });
+
+    // Toggle individual org checkboxes
+    const editAllOrgs = document.getElementById('edit-app-all-orgs');
+    if (editAllOrgs) {
+      editAllOrgs.addEventListener('change', () => {
+        const list = document.getElementById('edit-app-org-list');
+        if (list) list.style.display = editAllOrgs.checked ? 'none' : 'block';
+      });
+    }
+
     document.getElementById('submit-edit-app-btn').addEventListener('click', () => submitEditApp(appId));
   }
 
@@ -531,6 +641,30 @@ const PushitApp = (() => {
       });
       const data = await res.json();
       if (data.status === 1) {
+        // Update org visibility for public apps
+        if (visibility === 'public') {
+          const allOrgsCheck = document.getElementById('edit-app-all-orgs');
+          if (allOrgsCheck) {
+            if (allOrgsCheck.checked) {
+              await PushitAuth.apiCall(`/api/v1/applications/${appId}/visibility`, {
+                method: 'PUT',
+                body: JSON.stringify({ all_orgs: true }),
+              });
+            } else {
+              const selectedOrgs = Array.from(document.querySelectorAll('.edit-org-vis-cb:checked')).map((cb) => cb.value);
+              await PushitAuth.apiCall(`/api/v1/applications/${appId}/visibility`, {
+                method: 'PUT',
+                body: JSON.stringify({ organization_ids: selectedOrgs }),
+              });
+            }
+          }
+        } else {
+          // If switching to private, clear org visibility
+          await PushitAuth.apiCall(`/api/v1/applications/${appId}/visibility`, {
+            method: 'PUT',
+            body: JSON.stringify({ all_orgs: true }),
+          });
+        }
         PushitUI.closeModal();
         PushitUI.toast('App updated!', 'success');
         await loadApps();
@@ -815,6 +949,8 @@ const PushitApp = (() => {
       PushitUI.renderSettings(user, pushStatus, devices);
       // Load organizations after settings render (fills the orgs-list div)
       loadOrgs();
+      // Load SMTP config if admin
+      if (user.is_admin) loadSmtpConfig();
     }
   }
 
@@ -1050,6 +1186,8 @@ const PushitApp = (() => {
 
       const org = data.organization;
       const isOwner = org.role === 'owner';
+      const appCfg = PushitAuth.getConfig();
+      const smtpConfigured = appCfg && appCfg.smtpConfigured;
 
       let membersHtml = org.members.map((m) => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
@@ -1067,9 +1205,20 @@ const PushitApp = (() => {
         invitesHtml = `
           <h4 style="margin-top:16px;margin-bottom:8px;color:var(--text-secondary);">Pending Invites</h4>
           ${org.invites.map((inv) => `
-            <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px;">
-              <span>${escapeHtml(inv.email)}</span>
-              <span style="color:var(--text-muted);">expires ${new Date(inv.expires_at).toLocaleDateString()}</span>
+            <div style="border-bottom:1px solid var(--border);padding:8px 0;">
+              <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
+                <span style="font-weight:500;">${escapeHtml(inv.email)}</span>
+                <span style="color:var(--text-muted);font-size:11px;">expires ${new Date(inv.expires_at).toLocaleDateString()}</span>
+              </div>
+              ${inv.invite_url ? `
+                <div style="margin-top:4px;">
+                  <div class="key-display" data-action="copy" data-value="${escapeHtml(inv.invite_url)}" title="Click to copy invite link" style="font-size:11px;word-break:break-all;cursor:pointer;">${escapeHtml(inv.invite_url)}</div>
+                </div>
+              ` : ''}
+              <div style="display:flex;gap:6px;margin-top:6px;">
+                ${smtpConfigured ? `<button class="btn btn-small" data-action="resend-invite" data-org-id="${orgId}" data-invite-id="${inv.id}" style="flex:1;">Re-send</button>` : ''}
+                <button class="btn btn-danger btn-small" data-action="delete-invite" data-org-id="${orgId}" data-invite-id="${inv.id}" style="flex:1;">Delete</button>
+              </div>
             </div>
           `).join('')}
         `;
@@ -1151,6 +1300,43 @@ const PushitApp = (() => {
   }
 
   /**
+   * Re-send an organization invite email.
+   */
+  async function resendInvite(orgId, inviteId) {
+    try {
+      const res = await PushitAuth.apiCall(`/api/v1/organizations/${orgId}/invites/${inviteId}/resend`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (data.status === 1) {
+        PushitUI.toast('Invite re-sent!', 'success');
+      } else {
+        PushitUI.toast(data.errors?.[0] || 'Failed to re-send', 'error');
+      }
+    } catch (err) {
+      PushitUI.toast('Failed to re-send invite', 'error');
+    }
+  }
+
+  /**
+   * Delete (revoke) a pending invite.
+   */
+  async function deleteInvite(orgId, inviteId) {
+    if (!confirm('Delete this invite? The link will stop working.')) return;
+
+    try {
+      await PushitAuth.apiCall(`/api/v1/organizations/${orgId}/invites/${inviteId}`, {
+        method: 'DELETE',
+      });
+      PushitUI.toast('Invite deleted', 'success');
+      PushitUI.closeModal();
+      await viewOrg(orgId);
+    } catch (err) {
+      PushitUI.toast('Failed to delete invite', 'error');
+    }
+  }
+
+  /**
    * Delete an organization.
    */
   async function deleteOrg(orgId) {
@@ -1164,6 +1350,208 @@ const PushitApp = (() => {
       await loadOrgs();
     } catch (err) {
       PushitUI.toast('Failed to delete organization', 'error');
+    }
+  }
+
+  // ─── SMTP Configuration ──────────────────────────────────────────────
+
+  /**
+   * Load and render SMTP configuration in Settings.
+   */
+  async function loadSmtpConfig() {
+    const container = document.getElementById('smtp-config-content');
+    const statusEl = document.getElementById('smtp-status');
+    if (!container) return;
+
+    try {
+      const res = await PushitAuth.apiCall('/api/v1/settings/smtp');
+      const data = await res.json();
+      if (data.status !== 1) {
+        container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">Unable to load SMTP config.</p>';
+        return;
+      }
+
+      const smtp = data.smtp;
+      const envConfigured = data.envConfigured;
+
+      if (envConfigured) {
+        // SMTP configured via .env — show read-only info
+        statusEl.textContent = 'Configured via .env';
+        statusEl.style.color = 'var(--success)';
+        container.innerHTML = `
+          <div class="setting-row">
+            <span class="label">Host</span>
+            <span class="value">${escapeHtml(smtp.host)}</span>
+          </div>
+          <div class="setting-row">
+            <span class="label">Port</span>
+            <span class="value">${smtp.port}</span>
+          </div>
+          <div class="setting-row">
+            <span class="label">From</span>
+            <span class="value">${escapeHtml(smtp.from)}</span>
+          </div>
+          <p style="color:var(--text-muted);font-size:12px;margin-top:8px;">To change SMTP settings, edit the .env file on the server.</p>
+        `;
+      } else if (smtp.configured) {
+        // SMTP configured via DB (UI)
+        statusEl.textContent = 'Configured';
+        statusEl.style.color = 'var(--success)';
+        container.innerHTML = `
+          <div class="setting-row">
+            <span class="label">Host</span>
+            <span class="value">${escapeHtml(smtp.host)}:${smtp.port}</span>
+          </div>
+          <div class="setting-row">
+            <span class="label">User</span>
+            <span class="value">${escapeHtml(smtp.user)}</span>
+          </div>
+          <div class="setting-row">
+            <span class="label">From</span>
+            <span class="value">${escapeHtml(smtp.from)}</span>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:12px;">
+            <button class="btn btn-small" data-action="edit-smtp" style="flex:1;">Edit</button>
+            <button class="btn btn-danger btn-small" data-action="delete-smtp" style="flex:1;">Remove</button>
+          </div>
+        `;
+      } else {
+        // Not configured — show toggle button
+        statusEl.textContent = 'Not configured';
+        statusEl.style.color = 'var(--warning)';
+        container.innerHTML = `
+          <p style="color:var(--text-muted);font-size:13px;margin-bottom:8px;">Email is not configured. Set up SMTP to send invite emails and password reset links.</p>
+          <button class="btn btn-primary btn-small" data-action="edit-smtp" style="width:100%;">Configure SMTP</button>
+        `;
+      }
+    } catch (err) {
+      container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">Failed to load SMTP settings.</p>';
+    }
+  }
+
+  /**
+   * Show SMTP configuration form.
+   */
+  async function editSmtp() {
+    // Load current values if any
+    let current = { host: '', port: 587, secure: false, user: '', pass: '', from: 'noreply@example.com' };
+    try {
+      const res = await PushitAuth.apiCall('/api/v1/settings/smtp');
+      const data = await res.json();
+      if (data.status === 1 && data.smtp.configured && !data.envConfigured) {
+        current = { ...current, ...data.smtp };
+      }
+    } catch (e) { /* ignore */ }
+
+    PushitUI.showModal('Configure SMTP', `
+      <div class="form-group">
+        <label>SMTP Host</label>
+        <input type="text" id="smtp-host" value="${escapeHtml(current.host)}" placeholder="smtp.gmail.com" />
+      </div>
+      <div class="form-group">
+        <label>Port</label>
+        <input type="number" id="smtp-port" value="${current.port}" placeholder="587" />
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="smtp-secure" ${current.secure ? 'checked' : ''} />
+          <span>Use SSL/TLS (port 465)</span>
+        </label>
+      </div>
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" id="smtp-user" value="${escapeHtml(current.user)}" placeholder="user@example.com" />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="smtp-pass" value="" placeholder="${current.host ? '(unchanged)' : 'password'}" />
+      </div>
+      <div class="form-group">
+        <label>From Address</label>
+        <input type="text" id="smtp-from" value="${escapeHtml(current.from)}" placeholder="noreply@example.com" />
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button id="smtp-test-btn" class="btn btn-small" style="flex:1;">Test</button>
+        <button id="smtp-save-btn" class="btn btn-primary btn-small" style="flex:1;">Save</button>
+      </div>
+      <div id="smtp-test-result" style="margin-top:8px;font-size:13px;"></div>
+    `);
+
+    document.getElementById('smtp-test-btn').addEventListener('click', testSmtpFromForm);
+    document.getElementById('smtp-save-btn').addEventListener('click', saveSmtpFromForm);
+  }
+
+  function getSmtpFormValues() {
+    return {
+      host: document.getElementById('smtp-host').value.trim(),
+      port: parseInt(document.getElementById('smtp-port').value || '587', 10),
+      secure: document.getElementById('smtp-secure').checked,
+      user: document.getElementById('smtp-user').value.trim(),
+      pass: document.getElementById('smtp-pass').value,
+      from: document.getElementById('smtp-from').value.trim() || 'noreply@example.com',
+    };
+  }
+
+  async function testSmtpFromForm() {
+    const vals = getSmtpFormValues();
+    const resultEl = document.getElementById('smtp-test-result');
+    if (!vals.host || !vals.user) {
+      resultEl.innerHTML = '<span style="color:var(--danger);">Host and user are required.</span>';
+      return;
+    }
+
+    resultEl.innerHTML = '<span style="color:var(--text-muted);">Testing...</span>';
+
+    try {
+      const res = await PushitAuth.apiCall('/api/v1/settings/smtp/test', {
+        method: 'POST',
+        body: JSON.stringify(vals),
+      });
+      const data = await res.json();
+      if (data.status === 1) {
+        resultEl.innerHTML = `<span style="color:var(--success);">${escapeHtml(data.message)}</span>`;
+      } else {
+        resultEl.innerHTML = `<span style="color:var(--danger);">${escapeHtml(data.errors?.[0] || 'Test failed')}</span>`;
+      }
+    } catch (err) {
+      resultEl.innerHTML = '<span style="color:var(--danger);">Connection failed.</span>';
+    }
+  }
+
+  async function saveSmtpFromForm() {
+    const vals = getSmtpFormValues();
+    if (!vals.host || !vals.user) {
+      PushitUI.toast('Host and user are required', 'error');
+      return;
+    }
+
+    try {
+      const res = await PushitAuth.apiCall('/api/v1/settings/smtp', {
+        method: 'POST',
+        body: JSON.stringify(vals),
+      });
+      const data = await res.json();
+      if (data.status === 1) {
+        PushitUI.closeModal();
+        PushitUI.toast('SMTP configuration saved!', 'success');
+        await loadSmtpConfig();
+      } else {
+        PushitUI.toast(data.errors?.[0] || 'Failed to save', 'error');
+      }
+    } catch (err) {
+      PushitUI.toast('Failed to save SMTP config', 'error');
+    }
+  }
+
+  async function deleteSmtp() {
+    if (!confirm('Remove SMTP configuration? Email features will stop working.')) return;
+
+    try {
+      await PushitAuth.apiCall('/api/v1/settings/smtp', { method: 'DELETE' });
+      PushitUI.toast('SMTP configuration removed', 'success');
+      await loadSmtpConfig();
+    } catch (err) {
+      PushitUI.toast('Failed to remove SMTP config', 'error');
     }
   }
 
@@ -1242,7 +1630,12 @@ const PushitApp = (() => {
     viewOrg,
     inviteToOrg,
     removeOrgMember,
+    resendInvite,
+    deleteInvite,
     deleteOrg,
+    loadSmtpConfig,
+    editSmtp,
+    deleteSmtp,
   };
 })();
 

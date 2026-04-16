@@ -5,6 +5,13 @@ const router = express.Router();
 const db = require('../db/db');
 const config = require('../config');
 const { authenticateUser } = require('../middleware/auth');
+const { getSmtpConfig } = require('../services/smtp-config');
+
+// HTML-escape for safe interpolation into email HTML templates
+function escHtml(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 /**
  * GET /api/v1/organizations
@@ -106,15 +113,25 @@ router.get('/:id', authenticateUser, (req, res) => {
     [req.params.id]
   );
 
-  // Get pending invites (only for owners/admins)
+  // Get pending invites (only for owners/admins) — include token for invite URL
   let invites = [];
   if (membership.role === 'owner') {
     invites = db.all(
-      `SELECT id, email, created_at, expires_at FROM org_invites
+      `SELECT id, email, token, created_at, expires_at FROM org_invites
        WHERE organization_id = ? AND accepted_at IS NULL AND expires_at > datetime('now')
        ORDER BY created_at DESC`,
       [req.params.id]
     );
+    // Compute invite URLs
+    invites = invites.map((inv) => {
+      const existingUser = db.get('SELECT id FROM users WHERE email = ?', [inv.email]);
+      return {
+        ...inv,
+        invite_url: existingUser
+          ? `${config.baseUrl}/#accept-invite?token=${inv.token}`
+          : `${config.baseUrl}/#register-invite?token=${inv.token}`,
+      };
+    });
   }
 
   // Get org-scoped applications
@@ -220,26 +237,27 @@ router.post('/:id/invite', authenticateUser, async (req, res) => {
     inviteUrl = `${config.baseUrl}/#register-invite?token=${token}`;
   }
 
-  if (config.smtp.configured) {
+  const smtpConfig = getSmtpConfig();
+  if (smtpConfig) {
     try {
       const nodemailer = require('nodemailer');
       const transporter = nodemailer.createTransport({
-        host: config.smtp.host,
-        port: config.smtp.port,
-        secure: config.smtp.secure,
-        auth: { user: config.smtp.user, pass: config.smtp.pass },
+        host: smtpConfig.host,
+        port: smtpConfig.port,
+        secure: smtpConfig.secure,
+        auth: { user: smtpConfig.user, pass: smtpConfig.pass },
       });
 
       await transporter.sendMail({
-        from: config.smtp.from,
+        from: smtpConfig.from,
         to: email.toLowerCase(),
         subject: `pushIT — You've been invited to join ${org.name}`,
         text: `${req.dbUser.display_name} invited you to join "${org.name}" on pushIT.\n\nAccept the invite: ${inviteUrl}\n\nThis link expires in 7 days.`,
         html: `
           <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
             <h2>You're invited!</h2>
-            <p><strong>${req.dbUser.display_name}</strong> invited you to join <strong>${org.name}</strong> on pushIT.</p>
-            <p><a href="${inviteUrl}" style="display:inline-block;padding:12px 24px;background:#e94560;color:#fff;text-decoration:none;border-radius:6px;">Accept Invite</a></p>
+            <p><strong>${escHtml(req.dbUser.display_name)}</strong> invited you to join <strong>${escHtml(org.name)}</strong> on pushIT.</p>
+            <p><a href="${escHtml(inviteUrl)}" style="display:inline-block;padding:12px 24px;background:#e94560;color:#fff;text-decoration:none;border-radius:6px;">Accept Invite</a></p>
             <p style="color:#666;font-size:13px;">This link expires in 7 days.</p>
           </div>
         `,
@@ -300,6 +318,97 @@ router.post('/accept-invite/:token', authenticateUser, (req, res) => {
   console.log(`[Orgs] Invite accepted: ${req.dbUser.email} → ${org.name}`);
 
   res.json({ status: 1, organization: { id: org.id, name: org.name, slug: org.slug } });
+});
+
+/**
+ * DELETE /api/v1/organizations/:id/invites/:inviteId
+ * Delete (revoke) a pending invite. Owner only.
+ */
+router.delete('/:id/invites/:inviteId', authenticateUser, (req, res) => {
+  const membership = db.get(
+    "SELECT * FROM org_members WHERE organization_id = ? AND user_id = ? AND role = 'owner'",
+    [req.params.id, req.dbUser.id]
+  );
+  if (!membership) {
+    return res.status(403).json({ status: 0, errors: ['Only the owner can manage invites'] });
+  }
+
+  const invite = db.get(
+    'SELECT * FROM org_invites WHERE id = ? AND organization_id = ?',
+    [req.params.inviteId, req.params.id]
+  );
+  if (!invite) {
+    return res.status(404).json({ status: 0, errors: ['Invite not found'] });
+  }
+
+  db.run('DELETE FROM org_invites WHERE id = ?', [req.params.inviteId]);
+  console.log(`[Orgs] Invite deleted: ${invite.email} from org ${req.params.id}`);
+  res.json({ status: 1 });
+});
+
+/**
+ * POST /api/v1/organizations/:id/invites/:inviteId/resend
+ * Re-send an invite email. Owner only. Requires SMTP.
+ */
+router.post('/:id/invites/:inviteId/resend', authenticateUser, async (req, res) => {
+  const membership = db.get(
+    "SELECT * FROM org_members WHERE organization_id = ? AND user_id = ? AND role = 'owner'",
+    [req.params.id, req.dbUser.id]
+  );
+  if (!membership) {
+    return res.status(403).json({ status: 0, errors: ['Only the owner can resend invites'] });
+  }
+
+  const invite = db.get(
+    `SELECT * FROM org_invites WHERE id = ? AND organization_id = ? AND accepted_at IS NULL AND expires_at > datetime('now')`,
+    [req.params.inviteId, req.params.id]
+  );
+  if (!invite) {
+    return res.status(404).json({ status: 0, errors: ['Invite not found or expired'] });
+  }
+
+  const smtpConfig = getSmtpConfig();
+  if (!smtpConfig) {
+    return res.status(400).json({ status: 0, errors: ['SMTP is not configured'] });
+  }
+
+  const org = db.get('SELECT name FROM organizations WHERE id = ?', [req.params.id]);
+  const existingUser = db.get('SELECT id FROM users WHERE email = ?', [invite.email]);
+
+  const inviteUrl = existingUser
+    ? `${config.baseUrl}/#accept-invite?token=${invite.token}`
+    : `${config.baseUrl}/#register-invite?token=${invite.token}`;
+
+  try {
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host: smtpConfig.host,
+      port: smtpConfig.port,
+      secure: smtpConfig.secure,
+      auth: { user: smtpConfig.user, pass: smtpConfig.pass },
+    });
+
+    await transporter.sendMail({
+      from: smtpConfig.from,
+      to: invite.email,
+      subject: `pushIT — Reminder: You've been invited to join ${org.name}`,
+      text: `${req.dbUser.display_name} reminded you about your invite to join "${org.name}" on pushIT.\n\nAccept the invite: ${inviteUrl}\n\nThis link expires ${new Date(invite.expires_at).toLocaleDateString()}.`,
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
+          <h2>Reminder: You're invited!</h2>
+          <p><strong>${escHtml(req.dbUser.display_name)}</strong> reminded you about your invite to join <strong>${escHtml(org.name)}</strong> on pushIT.</p>
+          <p><a href="${escHtml(inviteUrl)}" style="display:inline-block;padding:12px 24px;background:#e94560;color:#fff;text-decoration:none;border-radius:6px;">Accept Invite</a></p>
+          <p style="color:#666;font-size:13px;">This link expires ${new Date(invite.expires_at).toLocaleDateString()}.</p>
+        </div>
+      `,
+    });
+
+    console.log(`[Orgs] Invite resent to ${invite.email} for org ${org.name}`);
+    res.json({ status: 1 });
+  } catch (emailErr) {
+    console.error('[Orgs] Failed to resend invite email:', emailErr.message);
+    res.status(500).json({ status: 0, errors: ['Failed to send email: ' + emailErr.message] });
+  }
 });
 
 /**

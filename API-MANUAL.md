@@ -1,4 +1,4 @@
-# pushIT API Manual
+# pushIT API Manual (v1.12.0)
 
 ## Authentication
 
@@ -325,6 +325,15 @@ Returns apps you own and public apps you're subscribed to. Each app includes:
 - `visibility` — `"private"` or `"public"`
 - `color` — hex color string
 
+> **v1.12.0:** Owned public apps now also include an `org_visibility` object:
+> ```json
+> "org_visibility": {
+>   "all_orgs": true,
+>   "organizations": [{ "id": "uuid", "name": "Ops Team" }]
+> }
+> ```
+> When `all_orgs` is `true`, the app is visible to everyone. When `false`, `organizations` lists the orgs it is restricted to.
+
 ### Create application
 
 **POST** `/api/v1/applications`
@@ -368,9 +377,79 @@ Updatable fields: `name`, `description`, `icon_url`, `is_active`, `visibility`, 
 
 Lists all public apps in the tenant with subscription status.
 
+> **v1.12.0:** Results are now filtered by org-visibility. Apps restricted to specific organizations are only shown to members of those organizations. Unrestricted apps remain visible to all users.
+
+### Get app org-visibility
+
+**GET** `/api/v1/applications/:id/visibility`
+
+Get the org-visibility settings for a public app you own. Owner only.
+
+```bash
+curl -s https://push.example.com/api/v1/applications/APP_ID/visibility \
+  -H "Cookie: connect.sid=SESSION" \
+  -H "X-Requested-With: XMLHttpRequest"
+```
+
+Response:
+
+```json
+{
+  "status": 1,
+  "visible_orgs": [
+    { "id": "org-uuid-1", "name": "Ops Team" }
+  ],
+  "all_user_orgs": [
+    { "id": "org-uuid-1", "name": "Ops Team" },
+    { "id": "org-uuid-2", "name": "Dev Team" }
+  ],
+  "all_orgs": false
+}
+```
+
+| Field           | Type    | Description                                                    |
+|-----------------|---------|----------------------------------------------------------------|
+| `visible_orgs`  | array   | Organizations the app is currently restricted to               |
+| `all_user_orgs` | array   | All organizations the authenticated user belongs to            |
+| `all_orgs`      | boolean | `true` if the app is visible to everyone (no restrictions)     |
+
+### Set app org-visibility
+
+**PUT** `/api/v1/applications/:id/visibility`
+
+Set org-visibility restrictions for a public app you own. Owner only.
+
+**Make visible to everyone (remove restrictions):**
+
+```bash
+curl -s -X PUT https://push.example.com/api/v1/applications/APP_ID/visibility \
+  -H "Content-Type: application/json" \
+  -H "Cookie: connect.sid=SESSION" \
+  -H "X-Requested-With: XMLHttpRequest" \
+  -d '{ "all_orgs": true }'
+```
+
+**Restrict to specific organizations:**
+
+```bash
+curl -s -X PUT https://push.example.com/api/v1/applications/APP_ID/visibility \
+  -H "Content-Type: application/json" \
+  -H "Cookie: connect.sid=SESSION" \
+  -H "X-Requested-With: XMLHttpRequest" \
+  -d '{ "organization_ids": ["org-uuid-1", "org-uuid-2"] }'
+```
+
+Only accepts organizations where the authenticated user is a member. Returns an error if no valid organization IDs are provided.
+
+```json
+{ "status": 1 }
+```
+
 ### Subscribe / Unsubscribe
 
 **POST** `/api/v1/applications/:id/subscribe` — Subscribe to a public app.
+
+> **v1.12.0:** This endpoint now enforces org-visibility restrictions. If the app is restricted to specific organizations and the user is not a member of any allowed organization, the request is rejected with **403 Forbidden**.
 
 **POST** `/api/v1/applications/:id/unsubscribe` — Unsubscribe from an app. Also deletes existing messages from that app for the user.
 
@@ -524,7 +603,8 @@ Returns the server's authentication mode and registration status. No authenticat
 {
   "authMode": "local",
   "registrationOpen": true,
-  "vapidPublicKey": "BEl62i..."
+  "vapidPublicKey": "BEl62i...",
+  "smtpConfigured": true
 }
 ```
 
@@ -533,6 +613,7 @@ Returns the server's authentication mode and registration status. No authenticat
 | `authMode`         | string  | `"entra"` (Microsoft Entra ID) or `"local"` (email/password)  |
 | `registrationOpen` | boolean | Whether self-registration is open (local auth only)            |
 | `vapidPublicKey`   | string  | VAPID public key for push subscription                         |
+| `smtpConfigured`   | boolean | Whether SMTP is configured on the server (v1.12.0)            |
 
 ---
 
@@ -740,7 +821,9 @@ The creating user becomes the organization owner.
 
 **GET** `/api/v1/organizations/:id`
 
-Returns organization info and its member list.
+Returns organization info, its member list, and pending invites.
+
+> **v1.12.0:** For owners, each invite in the response now includes `token` and `invite_url` fields, allowing the invite link to be copied directly from the UI without re-sending.
 
 ```json
 {
@@ -762,6 +845,15 @@ Returns organization info and its member list.
       "display_name": "Bob",
       "email": "bob@example.com",
       "role": "member"
+    }
+  ],
+  "invites": [
+    {
+      "id": "uuid",
+      "email": "charlie@example.com",
+      "token": "invite-token-string",
+      "invite_url": "https://push.example.com/invite/invite-token-string",
+      "created_at": "2026-04-10T08:00:00.000Z"
     }
   ]
 }
@@ -827,6 +919,28 @@ Returns all pending (unaccepted) invites for the organization. Owner only.
 
 Revoke a pending invite. Owner only.
 
+```bash
+curl -s -X DELETE https://push.example.com/api/v1/organizations/ORG_ID/invites/INVITE_ID \
+  -H "Cookie: connect.sid=SESSION" \
+  -H "X-Requested-With: XMLHttpRequest"
+```
+
+```json
+{ "status": 1 }
+```
+
+### Resend invite
+
+**POST** `/api/v1/organizations/:id/invites/:inviteId/resend`
+
+Re-send the invite email for a pending invite. Owner only. Requires SMTP to be configured on the server.
+
+```bash
+curl -s -X POST https://push.example.com/api/v1/organizations/ORG_ID/invites/INVITE_ID/resend \
+  -H "Cookie: connect.sid=SESSION" \
+  -H "X-Requested-With: XMLHttpRequest"
+```
+
 ```json
 { "status": 1 }
 ```
@@ -868,6 +982,139 @@ Delete the organization and remove all memberships. Owner only.
 ```
 DELETE /api/v1/organizations/:id
 ```
+
+```json
+{ "status": 1 }
+```
+
+---
+
+## SMTP Settings
+
+SMTP settings endpoints require session cookie authentication and **admin** role. These endpoints allow admins to configure outbound email (used for invites, password resets, email verification, etc.) via the web interface.
+
+SMTP can be configured in two ways: via environment variables (`.env`) or via the database (these endpoints). Environment variable configuration takes precedence and cannot be overridden or removed through the API.
+
+### Get SMTP configuration
+
+**GET** `/api/v1/settings/smtp`
+
+Returns the current SMTP configuration status. The password is never returned.
+
+```bash
+curl -s https://push.example.com/api/v1/settings/smtp \
+  -H "Cookie: connect.sid=SESSION" \
+  -H "X-Requested-With: XMLHttpRequest"
+```
+
+Response:
+
+```json
+{
+  "status": 1,
+  "smtp": {
+    "configured": true,
+    "source": "database",
+    "host": "smtp.example.com",
+    "port": 587,
+    "secure": false,
+    "user": "notifications@example.com",
+    "from": "pushIT <notifications@example.com>"
+  },
+  "envConfigured": false
+}
+```
+
+| Field             | Type    | Description                                                  |
+|-------------------|---------|--------------------------------------------------------------|
+| `smtp.configured` | boolean | Whether SMTP is currently configured (from any source)       |
+| `smtp.source`     | string  | `"env"` or `"database"` — where the active config comes from |
+| `smtp.host`       | string  | SMTP server hostname                                         |
+| `smtp.port`       | integer | SMTP server port                                             |
+| `smtp.secure`     | boolean | Whether TLS is used                                          |
+| `smtp.user`       | string  | SMTP username                                                |
+| `smtp.from`       | string  | From address for outbound emails                             |
+| `envConfigured`   | boolean | `true` if `.env` has SMTP variables set                      |
+
+### Save SMTP configuration
+
+**POST** `/api/v1/settings/smtp`
+
+Save SMTP configuration to the database. Cannot override `.env` configuration — if SMTP is already configured via environment variables, this endpoint returns an error.
+
+```bash
+curl -s -X POST https://push.example.com/api/v1/settings/smtp \
+  -H "Content-Type: application/json" \
+  -H "Cookie: connect.sid=SESSION" \
+  -H "X-Requested-With: XMLHttpRequest" \
+  -d '{
+    "host": "smtp.example.com",
+    "port": 587,
+    "secure": false,
+    "user": "notifications@example.com",
+    "pass": "smtp-password",
+    "from": "pushIT <notifications@example.com>"
+  }'
+```
+
+| Parameter | Type    | Required | Description                    |
+|-----------|---------|----------|--------------------------------|
+| `host`    | string  | Yes      | SMTP server hostname           |
+| `port`    | integer | No       | SMTP server port               |
+| `secure`  | boolean | No       | Use TLS                        |
+| `user`    | string  | Yes      | SMTP username                  |
+| `pass`    | string  | No       | SMTP password                  |
+| `from`    | string  | No       | From address for outbound mail |
+
+```json
+{ "status": 1 }
+```
+
+### Remove SMTP configuration
+
+**DELETE** `/api/v1/settings/smtp`
+
+Remove the database-stored SMTP configuration. Cannot remove `.env` configuration.
+
+```bash
+curl -s -X DELETE https://push.example.com/api/v1/settings/smtp \
+  -H "Cookie: connect.sid=SESSION" \
+  -H "X-Requested-With: XMLHttpRequest"
+```
+
+```json
+{ "status": 1 }
+```
+
+### Test SMTP configuration
+
+**POST** `/api/v1/settings/smtp/test`
+
+Send a test email to the admin's own email address to verify SMTP settings. Admin only.
+
+```bash
+curl -s -X POST https://push.example.com/api/v1/settings/smtp/test \
+  -H "Content-Type: application/json" \
+  -H "Cookie: connect.sid=SESSION" \
+  -H "X-Requested-With: XMLHttpRequest" \
+  -d '{
+    "host": "smtp.example.com",
+    "port": 587,
+    "secure": false,
+    "user": "notifications@example.com",
+    "pass": "",
+    "from": "pushIT <notifications@example.com>"
+  }'
+```
+
+| Parameter | Type    | Required | Description                                                  |
+|-----------|---------|----------|--------------------------------------------------------------|
+| `host`    | string  | Yes      | SMTP server hostname                                         |
+| `port`    | integer | No       | SMTP server port                                             |
+| `secure`  | boolean | No       | Use TLS                                                      |
+| `user`    | string  | Yes      | SMTP username                                                |
+| `pass`    | string  | No       | SMTP password. If empty, uses the stored password from the DB |
+| `from`    | string  | No       | From address for the test email                              |
 
 ```json
 { "status": 1 }

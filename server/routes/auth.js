@@ -214,10 +214,14 @@ function exchangeCodeForTokens(code, codeVerifier) {
  * Return app configuration for the frontend.
  */
 router.get('/config', (req, res) => {
+  const { getSmtpConfig } = require('../services/smtp-config');
+  const smtpCfg = getSmtpConfig();
+
   res.json({
     vapidPublicKey: config.vapid.publicKey,
     authMode: config.authMode,  // 'entra' or 'local'
     registrationOpen: config.authMode === 'local' ? config.localAuth.registrationOpen : false,
+    smtpConfigured: !!smtpCfg,
   });
 });
 

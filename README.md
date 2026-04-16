@@ -1,13 +1,13 @@
 # pushIT
 
-> **v1.11.0** — Self-hosted push notification service with a PWA client, flexible authentication (Microsoft Entra ID or local email/password), and n8n integration. Similar to [Pushover](https://pushover.net) but fully self-hosted.
+> **v1.12.0** — Self-hosted push notification service with a PWA client, flexible authentication (Microsoft Entra ID or local email/password), and n8n integration. Similar to [Pushover](https://pushover.net) but fully self-hosted.
 
 ## Features
 
 - **PWA for iOS & Android** — installable from the browser, works like a native app
 - **Web Push** — real-time push notifications via VAPID/Web Push API (iOS 16.4+)
 - **Dual auth mode** — Microsoft Entra ID (work account) or local email/password registration; auto-detected from config
-- **Organizations** — create orgs, invite friends by email, scope apps to an organization
+- **Organizations** — create orgs, invite friends by email, scope apps to an organization; owners can view, re-send, and delete pending invitation links from the manage panel
 - **Pushover-compatible API** — simple REST API for pushing notifications from any HTTP client
 - **n8n integration** — bidirectional webhooks (receive from n8n, forward to n8n)
 - **Priority system** — -2 (silent) to 2 (emergency with retry until acknowledged)
@@ -18,7 +18,9 @@
 - **SQLite** — zero-maintenance database, single-file backup
 - **Real-time** — WebSocket for instant message delivery to open clients (cookie-authenticated)
 - **Protocol-aware** — `BASE_URL` determines HTTPS behavior (secure cookies, CSP, HSTS, `wss://` vs `ws://`)
-- **Security** — CSRF protection, WebSocket cookie auth, token leak prevention, query parameter bounds validation
+- **Organization visibility scoping** — public apps can be restricted to specific organizations via checkboxes on the create/edit form; an "All organizations" toggle simplifies bulk selection (`app_org_visibility` junction table)
+- **SMTP configuration UI** — admins can configure SMTP settings from the Settings page (Save + Test buttons); stored in the database, `.env` values take priority if set
+- **Security** — CSRF protection, WebSocket cookie auth, token leak prevention, query parameter bounds validation, HTML escaping in email templates, org-visibility enforcement on subscribe endpoint, visibility field validation
 
 ## Architecture
 

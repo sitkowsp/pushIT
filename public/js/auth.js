@@ -21,7 +21,7 @@ const PushitAuth = (() => {
   let authConfig = null; // { authMode, registrationOpen, vapidPublicKey }
   // NOTE: keep this in sync with package.json `version` and the ?v=… query
   // strings in public/index.html on every release.
-  const CLIENT_VERSION = '1.11.0';
+  const CLIENT_VERSION = '1.12.0';
 
   /**
    * Initialize — check if we have a valid session.

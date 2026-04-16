@@ -214,6 +214,14 @@ You become the owner of the new organization automatically.
 3. Enter the email address of the person you want to invite
 4. A **shareable invite link** is also available — copy it and send it to anyone you'd like to join. Anyone with the link can accept the invitation and join your organization
 
+#### Managing pending invitations
+
+When viewing an organization (tap **Manage**), pending invitations are listed with the following details and actions:
+
+- **Invitation link** — the full invite URL is displayed and can be clicked or copied to share with the invitee
+- **Re-send** — if SMTP is configured on the instance, a **Re-send** button appears next to each pending invitation to re-send the invite email
+- **Delete** — tap **Delete** to revoke a pending invitation. The invite link will no longer work
+
 #### Managing members
 
 From your organization's member list you can:
@@ -224,6 +232,38 @@ From your organization's member list you can:
 #### Organization-scoped apps
 
 Apps can be linked to an organization, making them visible to all members of that organization. When you create or edit an app, you can assign it to an organization you belong to. All members of that organization will then see the app in their Apps tab and can subscribe to receive its notifications. This is useful for shared alerting and team-wide notification sources.
+
+#### App organization visibility
+
+When creating or editing a **Public** app, if you belong to any organizations, a **Visible to organizations** section appears in the form:
+
+- **All organizations** — checked by default. The app is visible to all users, regardless of organization membership
+- When unchecked, a checkbox appears for each of your organizations. Only members of the selected organizations will be able to see and subscribe to the app
+
+You can change this setting at any time by editing the app (tap **Edit** on the app card).
+
+### Email (SMTP) — Admin only
+
+Admins see an **Email (SMTP)** section in Settings for configuring outbound email (used for invitation emails, password resets, etc.).
+
+The section displays one of three states:
+
+- **Configured via .env** — SMTP settings were provided through environment variables. The configuration is shown as read-only
+- **Configured via UI** — shows the current SMTP host, username, and from address, along with **Edit** and **Remove** buttons
+- **Not configured** — shows a **Configure SMTP** button to set up email for the first time
+
+#### Configuring SMTP
+
+1. Tap **Configure SMTP** (or **Edit** if already configured)
+2. Fill in the form:
+   - **SMTP Host** — your mail server hostname (e.g., `smtp.example.com`)
+   - **Port** — the SMTP port (e.g., 587)
+   - **SSL/TLS** — toggle on if your server requires a secure connection
+   - **Username** — your SMTP login username
+   - **Password** — your SMTP login password
+   - **From Address** — the email address that outgoing messages are sent from
+3. Tap **Test** to send a test email to your own email address and verify the configuration works
+4. Tap **Save** to store the configuration in the database
 
 ### Sign Out
 

@@ -156,10 +156,38 @@ const PushitUI = (() => {
         return;
       }
 
+      // Resend invite
+      const resendBtn = e.target.closest('[data-action="resend-invite"]');
+      if (resendBtn) {
+        PushitApp.resendInvite(resendBtn.dataset.orgId, resendBtn.dataset.inviteId);
+        return;
+      }
+
+      // Delete invite
+      const deleteInvBtn = e.target.closest('[data-action="delete-invite"]');
+      if (deleteInvBtn) {
+        PushitApp.deleteInvite(deleteInvBtn.dataset.orgId, deleteInvBtn.dataset.inviteId);
+        return;
+      }
+
       // Delete organization
       const deleteOrgBtn = e.target.closest('[data-action="delete-org"]');
       if (deleteOrgBtn) {
         PushitApp.deleteOrg(deleteOrgBtn.dataset.id);
+        return;
+      }
+
+      // Edit SMTP config
+      const editSmtpBtn = e.target.closest('[data-action="edit-smtp"]');
+      if (editSmtpBtn) {
+        PushitApp.editSmtp();
+        return;
+      }
+
+      // Delete SMTP config
+      const deleteSmtpBtn = e.target.closest('[data-action="delete-smtp"]');
+      if (deleteSmtpBtn) {
+        PushitApp.deleteSmtp();
         return;
       }
 
@@ -447,6 +475,18 @@ const PushitUI = (() => {
           <p style="color:var(--text-muted);font-size:13px;">Loading...</p>
         </div>
       </div>
+
+      ${user.is_admin ? `
+      <div class="settings-section" id="smtp-config-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3>Email (SMTP)</h3>
+          <span id="smtp-status" style="font-size:12px;color:var(--text-muted);"></span>
+        </div>
+        <div id="smtp-config-content" style="margin-top:8px;">
+          <p style="color:var(--text-muted);font-size:13px;">Loading...</p>
+        </div>
+      </div>
+      ` : ''}
 
       <div class="settings-section">
         <h3>API Usage</h3>

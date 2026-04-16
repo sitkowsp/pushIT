@@ -23,6 +23,7 @@ const groupsRoutes = require('./routes/groups');
 const webhooksRoutes = require('./routes/webhooks');
 const localAuthRoutes = require('./routes/local-auth');
 const organizationsRoutes = require('./routes/organizations');
+const settingsRoutes = require('./routes/settings');
 
 const app = express();
 const server = http.createServer(app);
@@ -134,6 +135,7 @@ app.use('/api/v1/groups', apiLimiter, groupsRoutes);
 app.use('/api/v1/webhooks', messageLimiter, webhooksRoutes);
 app.use('/api/v1/local-auth', authLimiter, localAuthRoutes);
 app.use('/api/v1/organizations', apiLimiter, organizationsRoutes);
+app.use('/api/v1/settings', apiLimiter, settingsRoutes);
 
 // Validate user/group endpoint (Pushover-compatible)
 app.post('/api/v1/users/validate', apiLimiter, (req, res) => {
