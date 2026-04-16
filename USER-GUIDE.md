@@ -32,7 +32,14 @@ You'll be signed in immediately after registering.
 1. Enter the email address and password you registered with
 2. Tap **Login**
 
-If you forget your password, contact your instance administrator to reset it.
+#### Forgot password
+
+1. On the login screen, tap **Forgot Password**
+2. Enter the email address you registered with
+3. Check your email for a password reset link
+4. Follow the link and enter a new password
+
+If SMTP is not configured on the instance, contact your administrator to reset your password manually.
 
 ---
 
@@ -225,6 +232,8 @@ Tap the red **Sign Out** button at the bottom to end your session and return to 
 ---
 
 ## Tips
+
+- **HTTPS required for push**: Push notifications require HTTPS (or localhost). If your instance runs over plain HTTP on a LAN, push notifications will not work unless you access it from the same machine (localhost). Ask your admin about enabling SSL if you need push on other devices.
 
 - **Install as PWA**: On iOS, open pushIT in Safari, tap Share, then "Add to Home Screen." On Android, tap the browser menu and "Install app." This gives you a native app experience with home screen icon and push notifications.
 

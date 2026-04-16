@@ -10,9 +10,9 @@ const config = require('../config');
  * This is an alternative to the standard messages API for n8n-specific flows.
  */
 router.post('/n8n', (req, res) => {
-  // Validate webhook secret
+  // Validate webhook secret — reject ALL requests if secret is not configured
   const secret = req.headers['x-webhook-secret'] || req.body.webhook_secret;
-  if (config.n8n.webhookSecret && secret !== config.n8n.webhookSecret) {
+  if (!config.n8n.webhookSecret || secret !== config.n8n.webhookSecret) {
     return res.status(401).json({ status: 0, errors: ['Invalid webhook secret'] });
   }
 

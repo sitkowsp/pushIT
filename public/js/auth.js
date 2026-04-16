@@ -46,6 +46,7 @@ const PushitAuth = (() => {
         if (authConfig.authMode === 'local') {
           // Show local login/register form instead of redirecting to Azure
           console.log('[Auth] No session, showing local auth form...');
+          document.getElementById('app-main').style.display = 'none';
           showLocalAuthForm();
           return false;
         }

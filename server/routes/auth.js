@@ -89,10 +89,12 @@ router.get('/callback', async (req, res) => {
 
   if (error) {
     console.error('[Auth] OAuth2 error:', error, error_description);
+    // HTML-escape to prevent reflected XSS via error/error_description params
+    const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     return res.status(400).send(`
       <html><body style="font-family:sans-serif;text-align:center;padding:60px;">
         <h2>Authentication Error</h2>
-        <p>${error}: ${error_description || 'Unknown error'}</p>
+        <p>${esc(error)}: ${esc(error_description) || 'Unknown error'}</p>
         <a href="/">Try Again</a>
       </body></html>
     `);

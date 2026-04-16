@@ -109,12 +109,14 @@ const authLimiter = rateLimit({
 app.use('/api/v1', (req, res, next) => {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
 
-  // Skip CSRF check for app-token authenticated endpoints (no cookie = no CSRF risk)
-  if (req.body && req.body.token) return next();
-  if (req.query && req.query.token) return next();
-
   // Browser-session requests must include the custom header (set by apiCall())
   const sessionCookie = req.cookies && req.cookies.pushit_session;
+
+  // Skip CSRF check only when using app-token auth AND no session cookie is present.
+  // If a session cookie exists, CSRF check is required regardless of token parameter
+  // to prevent attackers from adding token=garbage to bypass CSRF.
+  if (!sessionCookie && (req.body?.token || req.query?.token)) return next();
+
   if (sessionCookie && !req.headers['x-requested-with']) {
     return res.status(403).json({ status: 0, errors: ['Missing CSRF header'] });
   }

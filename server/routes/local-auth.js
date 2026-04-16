@@ -19,9 +19,16 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// Password validation (min 8 chars, at least 1 letter and 1 number)
+// Password validation (8-128 chars, at least 1 letter and 1 number)
+// Max 128 to prevent bcrypt DoS (bcrypt truncates at 72 bytes anyway)
 function isValidPassword(password) {
-  return password && password.length >= 8 && /[a-zA-Z]/.test(password) && /[0-9]/.test(password);
+  return password && password.length >= 8 && password.length <= 128 &&
+    /[a-zA-Z]/.test(password) && /[0-9]/.test(password);
+}
+
+// Display name validation
+function isValidDisplayName(name) {
+  return name && name.length >= 1 && name.length <= 100;
 }
 
 /**
@@ -44,10 +51,10 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ status: 0, errors: ['A valid email address is required'] });
   }
   if (!isValidPassword(password)) {
-    return res.status(400).json({ status: 0, errors: ['Password must be at least 8 characters with at least 1 letter and 1 number'] });
+    return res.status(400).json({ status: 0, errors: ['Password must be 8-128 characters with at least 1 letter and 1 number'] });
   }
-  if (!display_name || display_name.trim().length < 1) {
-    return res.status(400).json({ status: 0, errors: ['Display name is required'] });
+  if (!isValidDisplayName(display_name?.trim())) {
+    return res.status(400).json({ status: 0, errors: ['Display name is required (max 100 characters)'] });
   }
 
   // Check for existing user
@@ -222,7 +229,9 @@ router.post('/forgot-password', async (req, res) => {
     return res.json({ status: 1, message: 'If an account with that email exists, a reset link has been sent.' });
   }
 
-  const resetToken = crypto.randomBytes(32).toString('hex');
+  // Prefix with 'reset:' to distinguish from email verification tokens,
+  // and embed a timestamp so we can enforce expiry (1 hour).
+  const resetToken = `reset:${Date.now()}:${crypto.randomBytes(32).toString('hex')}`;
   db.run('UPDATE users SET verification_token = ? WHERE id = ?', [resetToken, user.id]);
 
   if (config.smtp.configured) {
@@ -251,12 +260,28 @@ router.post('/reset-password', async (req, res) => {
   }
 
   if (!isValidPassword(password)) {
-    return res.status(400).json({ status: 0, errors: ['Password must be at least 8 characters with at least 1 letter and 1 number'] });
+    return res.status(400).json({ status: 0, errors: ['Password must be 8-128 characters with at least 1 letter and 1 number'] });
   }
 
-  const user = db.get('SELECT * FROM users WHERE verification_token = ? AND auth_type = ?', [token, 'local']);
+  // Accept both prefixed (new) and unprefixed (legacy) tokens
+  const fullToken = token.startsWith('reset:') ? token : `reset:0:${token}`;
+  const user = db.get(
+    'SELECT * FROM users WHERE (verification_token = ? OR verification_token = ?) AND auth_type = ?',
+    [token, fullToken, 'local']
+  );
   if (!user) {
     return res.status(400).json({ status: 0, errors: ['Invalid or expired reset token'] });
+  }
+
+  // Enforce 1-hour expiry on reset tokens
+  const storedToken = user.verification_token || '';
+  if (storedToken.startsWith('reset:')) {
+    const parts = storedToken.split(':');
+    const created = parseInt(parts[1], 10);
+    if (created > 0 && Date.now() - created > 3600000) { // 1 hour
+      db.run('UPDATE users SET verification_token = NULL WHERE id = ?', [user.id]);
+      return res.status(400).json({ status: 0, errors: ['Reset token has expired. Please request a new one.'] });
+    }
   }
 
   try {
@@ -345,7 +370,7 @@ router.post('/register-invite', async (req, res) => {
     return res.status(400).json({ status: 0, errors: ['Invite token is required'] });
   }
   if (!isValidPassword(password)) {
-    return res.status(400).json({ status: 0, errors: ['Password must be at least 8 characters with at least 1 letter and 1 number'] });
+    return res.status(400).json({ status: 0, errors: ['Password must be 8-128 characters with at least 1 letter and 1 number'] });
   }
 
   // Find valid invite

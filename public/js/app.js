@@ -45,20 +45,24 @@ const PushitApp = (() => {
     if (isAuth) {
       await loadApp();
     } else {
-      // PushitAuth.init() redirects to /api/v1/auth/login on 401,
-      // so we only reach here on unexpected errors (network, server down).
-      document.getElementById('login-screen').style.display = 'flex';
+      // Auth failed — either local-auth form is already shown (showLocalAuthForm),
+      // or Entra redirect is in progress, or there was a network error.
+      // Ensure app-main is hidden regardless.
       document.getElementById('app-main').style.display = 'none';
-      const spinner = document.querySelector('#login-screen .loading');
-      if (spinner) spinner.style.display = 'none';
+      document.getElementById('login-screen').style.display = 'flex';
+
+      // Show error message only if the login-screen still has the original
+      // loading UI (not replaced by showLocalAuthForm).
       const statusEl = document.getElementById('auth-status');
       if (statusEl) {
         statusEl.textContent = 'Could not connect to server. Please try again.';
+        const spinner = document.querySelector('#login-screen .loading');
+        if (spinner) spinner.style.display = 'none';
+        const loginBtn = document.getElementById('login-btn');
+        if (loginBtn) loginBtn.style.display = 'inline-flex';
+        const clearBtn = document.getElementById('clear-cache-btn');
+        if (clearBtn) clearBtn.style.display = 'inline-flex';
       }
-      const loginBtn = document.getElementById('login-btn');
-      if (loginBtn) loginBtn.style.display = 'inline-flex';
-      const clearBtn = document.getElementById('clear-cache-btn');
-      if (clearBtn) clearBtn.style.display = 'inline-flex';
     }
   }
 

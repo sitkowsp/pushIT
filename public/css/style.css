@@ -46,6 +46,8 @@ html, body {
   height: 100dvh;
   padding-top: var(--safe-top);
   padding-bottom: var(--safe-bottom);
+  overflow: hidden;      /* Prevent scrolling past the visible screen */
+  position: relative;    /* Anchor for login-screen overlay */
 }
 
 /* ─── Login Screen ─────────────────────────────────────────────────── */
@@ -54,9 +56,12 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
+  min-height: 100%;
   padding: 24px;
   text-align: center;
+  position: relative;
+  z-index: 100;          /* Always above #app-main */
+  background: var(--bg-primary);  /* Opaque — hides anything behind */
 }
 
 #login-screen .logo {

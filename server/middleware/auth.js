@@ -59,6 +59,12 @@ function authenticateUser(req, res, next) {
     }
   }
 
+  // ─── Strategies 1-3: Proxy header auth (Entra mode only) ───────────
+  // These strategies trust HTTP headers set by a reverse proxy (App Proxy).
+  // In local auth mode, proxy headers are DISABLED to prevent spoofing —
+  // without a trusted proxy stripping these headers, any client can set them.
+  if (config.authMode === 'entra') {
+
   // ─── Strategy 1: Custom SSO headers (configurable) ─────────────────
   const hdr = config.proxyHeaders;
   const ssoEmail = req.headers[hdr.email];
@@ -140,6 +146,8 @@ function authenticateUser(req, res, next) {
       console.warn('[Auth] Failed to decode X-MS-TOKEN-AAD-ID-TOKEN:', e.message);
     }
   }
+
+  } // end entra-only proxy header strategies
 
   // ─── Strategy 4: Bearer JWT (MSAL / backward compat) ──────────────
   const authHeader = req.headers.authorization;

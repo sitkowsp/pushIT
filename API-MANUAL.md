@@ -802,6 +802,35 @@ Content-Type: application/json
 
 If the email belongs to an existing user, they receive an invite they can accept. If not, the invite link allows them to register via `POST /api/v1/local-auth/register-invite`.
 
+### List pending invites
+
+**GET** `/api/v1/organizations/:id/invites`
+
+Returns all pending (unaccepted) invites for the organization. Owner only.
+
+```json
+{
+  "status": 1,
+  "invites": [
+    {
+      "id": "uuid",
+      "email": "bob@example.com",
+      "created_at": "2026-04-10T08:00:00.000Z"
+    }
+  ]
+}
+```
+
+### Delete invite
+
+**DELETE** `/api/v1/organizations/:id/invites/:inviteId`
+
+Revoke a pending invite. Owner only.
+
+```json
+{ "status": 1 }
+```
+
 ### Accept invite
 
 **POST** `/api/v1/organizations/accept-invite/:token`

@@ -9,6 +9,13 @@ const PushitUI = (() => {
    * Initialize event delegation for dynamically rendered elements.
    */
   function initDelegation() {
+    // Hide broken images (replaces inline onerror handlers for CSP compliance)
+    document.addEventListener('error', (e) => {
+      if (e.target.tagName === 'IMG' && e.target.closest('.message-image')) {
+        e.target.closest('.message-image').style.display = 'none';
+      }
+    }, true);  // use capture phase to catch img errors
+
     document.addEventListener('click', (e) => {
       // Acknowledge button
       const ackBtn = e.target.closest('[data-action="acknowledge"]');
@@ -231,7 +238,7 @@ const PushitUI = (() => {
       const appColor = msg.app_color ? `border-left-color: ${msg.app_color};` : '';
 
       const time = formatTime(msg.timestamp || msg.created_at);
-      const body = msg.html ? msg.message : escapeHtml(msg.message);
+      const body = msg.html ? sanitizeHtml(msg.message) : escapeHtml(msg.message);
 
       let actionsHtml = '';
       if (msg.priority >= 2 && msg.receipt && !msg.acknowledged) {
@@ -243,7 +250,7 @@ const PushitUI = (() => {
       const actions = actionsHtml ? `<div class="actions">${actionsHtml}</div>` : '';
 
       const imageHtml = msg.image
-        ? `<div class="message-image"><img src="${escapeHtml(msg.image)}" alt="" loading="lazy" style="max-width:100%;border-radius:8px;margin-top:8px;max-height:200px;object-fit:contain;" onerror="this.parentElement.style.display='none'" /></div>`
+        ? `<div class="message-image"><img src="${escapeHtml(msg.image)}" alt="" loading="lazy" style="max-width:100%;border-radius:8px;margin-top:8px;max-height:200px;object-fit:contain;" /></div>`
         : '';
 
       return `
@@ -357,9 +364,9 @@ const PushitUI = (() => {
           <div class="toggle ${f.is_active ? 'active' : ''}" data-action="toggle-filter" data-id="${f.id}" data-active="${!f.is_active}"></div>
         </div>
         <span style="font-size:12px;color:var(--text-muted)">
-          ${f.action}${f.action_webhook_url ? ' → webhook' : ''}
-          ${f.match_title_pattern ? ` | title: /${f.match_title_pattern}/` : ''}
-          ${f.match_message_pattern ? ` | msg: /${f.match_message_pattern}/` : ''}
+          ${escapeHtml(f.action)}${f.action_webhook_url ? ' → webhook' : ''}
+          ${f.match_title_pattern ? ` | title: /${escapeHtml(f.match_title_pattern)}/` : ''}
+          ${f.match_message_pattern ? ` | msg: /${escapeHtml(f.match_message_pattern)}/` : ''}
         </span>
       </div>
     `).join('');
@@ -695,6 +702,74 @@ requests.post(
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+  }
+
+  /**
+   * Sanitize HTML messages — whitelist safe tags/attributes only.
+   * Prevents stored XSS from app-token holders sending html:true messages.
+   */
+  function sanitizeHtml(html) {
+    if (!html) return '';
+    const ALLOWED_TAGS = new Set([
+      'b', 'i', 'u', 'em', 'strong', 'a', 'br', 'p', 'ul', 'ol', 'li',
+      'code', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'span', 'div',
+      'font', 'small', 'sub', 'sup', 'hr', 'table', 'thead', 'tbody',
+      'tr', 'td', 'th',
+    ]);
+    const ALLOWED_ATTRS = new Set([
+      'href', 'target', 'rel', 'style', 'color', 'size', 'class',
+    ]);
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const clean = document.createDocumentFragment();
+
+    function sanitizeNode(node) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        return document.createTextNode(node.textContent);
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return null;
+
+      const tagName = node.tagName.toLowerCase();
+      if (!ALLOWED_TAGS.has(tagName)) {
+        // Replace disallowed tags with their text content
+        const frag = document.createDocumentFragment();
+        for (const child of node.childNodes) {
+          const cleaned = sanitizeNode(child);
+          if (cleaned) frag.appendChild(cleaned);
+        }
+        return frag;
+      }
+
+      const el = document.createElement(tagName);
+      for (const attr of node.attributes) {
+        const name = attr.name.toLowerCase();
+        if (!ALLOWED_ATTRS.has(name)) continue;
+        let value = attr.value;
+        // Block javascript: URLs in href
+        if (name === 'href' && /^\s*javascript:/i.test(value)) continue;
+        if (name === 'href') {
+          el.setAttribute('rel', 'noopener noreferrer');
+          el.setAttribute('target', '_blank');
+        }
+        el.setAttribute(name, value);
+      }
+
+      for (const child of node.childNodes) {
+        const cleaned = sanitizeNode(child);
+        if (cleaned) el.appendChild(cleaned);
+      }
+      return el;
+    }
+
+    for (const child of doc.body.childNodes) {
+      const cleaned = sanitizeNode(child);
+      if (cleaned) clean.appendChild(cleaned);
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.appendChild(clean);
+    return wrapper.innerHTML;
   }
 
   return {

@@ -1,6 +1,6 @@
 # pushIT
 
-Self-hosted push notification service with a PWA client, flexible authentication (Microsoft Entra ID or local email/password), and n8n integration. Similar to [Pushover](https://pushover.net) but fully self-hosted.
+> **v1.11.0** — Self-hosted push notification service with a PWA client, flexible authentication (Microsoft Entra ID or local email/password), and n8n integration. Similar to [Pushover](https://pushover.net) but fully self-hosted.
 
 ## Features
 
@@ -17,7 +17,8 @@ Self-hosted push notification service with a PWA client, flexible authentication
 - **Custom icons & images** — per-notification icon and large preview image (Android/Windows/macOS)
 - **SQLite** — zero-maintenance database, single-file backup
 - **Real-time** — WebSocket for instant message delivery to open clients (cookie-authenticated)
-- **Security** — CSRF protection, query parameter bounds validation
+- **Protocol-aware** — `BASE_URL` determines HTTPS behavior (secure cookies, CSP, HSTS, `wss://` vs `ws://`)
+- **Security** — CSRF protection, WebSocket cookie auth, token leak prevention, query parameter bounds validation
 
 ## Architecture
 
@@ -109,7 +110,18 @@ cd /tmp && tar -xzf pushit-*.tar.gz && cd pushit-*
 sudo bash deploy/deploy.sh
 ```
 
-The script installs Node.js, creates a system user, generates VAPID keys and secrets, initializes the database, and starts a systemd service. It also offers to set up Apache2 with SSL (Let's Encrypt for public domains, self-signed certs for LAN). See `deploy/deploy.sh` for details.
+The script installs Node.js, creates a system user, generates VAPID keys and secrets, initializes the database, and starts a systemd service.
+
+During setup the script prompts for:
+
+- **Auth mode** — Entra ID (Y) or local email/password (N, the default)
+- **SSL mode** — three options:
+  1. **Let's Encrypt** — automatic certificate for a public domain
+  2. **Self-signed** — generated certificate for LAN/IP access (auto-detects server IP)
+  3. **Manual** — bring your own certificate files
+- **Apache** — if Apache is not installed or you skip setup, the script sets `BASE_URL=http://IP:PORT` for plain HTTP
+
+See `deploy/deploy.sh` for details.
 
 ### LAN / Local Network Deployment
 
